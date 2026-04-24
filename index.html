@@ -485,6 +485,12 @@
     font-family: var(--font-mono);
     font-size: 11px;
   }
+  table.results-tbl td.contact-cell {
+    font-size: 11px;
+    max-width: 180px;
+    word-break: break-all;
+    color: var(--text-dim);
+  }
 
   .event-link {
     color: var(--text);
@@ -858,6 +864,8 @@
             <th data-col="county">COUNTY</th>
             <th data-col="zip">ZIP</th>
             <th data-col="type">TYPE</th>
+            <th data-col="attendance">ATTENDANCE</th>
+            <th data-col="contact">CONTACT</th>
             <th data-col="coverage">COVERAGE</th>
             <th>LINK</th>
           </tr>
@@ -1250,7 +1258,7 @@ async function callSerper(apiKey, query) {
   const resp = await fetch('https://google.serper.dev/search', {
     method:  'POST',
     headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ q: query, gl: 'us', hl: 'en', num: 10 })
+    body:    JSON.stringify({ q: query, gl: 'us', hl: 'en', num: 20 })
   });
   if (!resp.ok) {
     const e = new Error(`HTTP ${resp.status}`);
@@ -1273,18 +1281,31 @@ async function callSerper(apiKey, query) {
 
 // Home improvement shows rarely appear in Google's events carousel — they're
 // in organic results instead. This converts qualifying organic hits to event shape.
-const ORGANIC_EVENT_RE = /\b(home\s*show|home\s+improvement\s+(show|expo)|home\s*(and|&)\s*garden\s+show|remodeling\s+(show|expo)|county\s+fair|state\s+fair|art\s+fair|craft\s+(show|fair)|home\s+expo)\b/i;
-const ORGANIC_DATE_RE  = /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+\d{1,2}(?:\s*[-–]\s*\d{1,2})?,?\s*202\d/i;
+const ORGANIC_EVENT_RE  = /\b(home\s*show|home\s+improvement\s+(show|expo|fair)|home\s*(and|&)\s*garden\s+(show|expo)|remodeling\s+(show|expo)|renovation\s+(show|expo)|outdoor\s+living\s+(show|expo)|county\s+fair|state\s+fair|art\s+fair|craft\s+(show|fair)|home\s+expo|trade\s+show|home\s+garden\s+expo)\b/i;
+const ORGANIC_DATE_RE   = /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+\d{1,2}(?:\s*[-–]\s*\d{1,2})?,?\s*202\d/i;
+const ATTENDANCE_RE     = /\b(?:over\s+|up\s+to\s+|about\s+|approximately\s+|attracts?\s+|draws?\s+|expected?\s+)?([\d,]+(?:k|\+)?)\s*(?:\+\s*)?(?:attendees?|visitors?|guests?|shoppers?|participants?)\b|\battendance\s+(?:of\s+)?(?:over\s+)?([\d,]+(?:k|\+)?)\b/i;
+const EMAIL_RE          = /\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b/;
+const PHONE_RE          = /\(?\b\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}\b/;
 
 function organicsToEvents(organics) {
   return organics
     .filter(o => ORGANIC_EVENT_RE.test((o.title || '') + ' ' + (o.snippet || '')))
-    .map(o => ({
-      title:   (o.title || '').replace(/\s*[|–]\s*.{0,50}$/, '').replace(/\s*-\s*(tickets?|schedule|dates?|register|event\s+details?)\s*$/i, '').trim(),
-      date:    ((o.title + ' ' + o.snippet).match(ORGANIC_DATE_RE) || [])[0] || null,
-      address: o.snippet || '',
-      link:    o.link || ''
-    }))
+    .map(o => {
+      const text       = (o.title || '') + ' ' + (o.snippet || '');
+      const attMatch   = text.match(ATTENDANCE_RE);
+      const attendance = attMatch ? (attMatch[1] || attMatch[2] || '').trim() : '';
+      const emailMatch = (o.snippet || '').match(EMAIL_RE);
+      const phoneMatch = (o.snippet || '').match(PHONE_RE);
+      const contact    = [emailMatch?.[0], phoneMatch?.[0]].filter(Boolean).join(' | ');
+      return {
+        title:      (o.title || '').replace(/\s*[|–]\s*.{0,50}$/, '').replace(/\s*-\s*(tickets?|schedule|dates?|register|event\s+details?)\s*$/i, '').trim(),
+        date:       (text.match(ORGANIC_DATE_RE) || [])[0] || null,
+        address:    o.snippet || '',
+        link:       o.link || '',
+        attendance,
+        contact
+      };
+    })
     .filter(e => e.title);
 }
 
@@ -1381,7 +1402,9 @@ function normalizeEvent(evt, sourceQuery, searchState) {
     type:          inferEventType(sourceQuery, name),
     url:           evt.link || '',
     source:        sourceQuery,
-    sourceQueries: []
+    sourceQueries: [],
+    attendance:    evt.attendance || '',
+    contact:       evt.contact    || ''
   };
 }
 
@@ -1509,6 +1532,8 @@ function renderResults(results) {
       <td class="mono">${escHtml(e.county)}</td>
       <td class="mono">${escHtml(e.zip)}</td>
       <td><span class="type-badge ${typeClass}">${escHtml(e.type.toUpperCase())}</span></td>
+      <td class="mono">${escHtml(e.attendance)}</td>
+      <td class="contact-cell">${escHtml(e.contact)}</td>
       <td><span class="coverage-dot ${e.coverage}">${covLabel}</span></td>
       <td><a class="event-link" href="${escHtml(e.url)}" target="_blank" title="View event">↗</a></td>
     </tr>`;
@@ -1531,15 +1556,18 @@ function escHtml(s) {
 // ═══════════════════════════════════════════
 function exportCSV() {
   const visible = applyFilters(currentResults);
-  const headers = ['Event Name','Start Date','End Date','Venue','City','State','County','ZIP','Type','Coverage','Source URL'];
+  const headers = ['Event Name','Start Date','End Date','Venue','City','State','County','ZIP','Type','Attendance','Contact','Coverage','Source URL'];
   const rows    = visible.map(e => [
-    `"${(e.name   || '').replace(/"/g, '""')}"`,
+    `"${(e.name       || '').replace(/"/g, '""')}"`,
     e.startDate,
     e.endDate || e.startDate,
-    `"${(e.venue  || '').replace(/"/g, '""')}"`,
+    `"${(e.venue      || '').replace(/"/g, '""')}"`,
     e.city, e.state,
-    `"${(e.county || '').replace(/"/g, '""')}"`,
-    e.zip, e.type, e.coverage, e.url
+    `"${(e.county     || '').replace(/"/g, '""')}"`,
+    e.zip, e.type,
+    `"${(e.attendance || '').replace(/"/g, '""')}"`,
+    `"${(e.contact    || '').replace(/"/g, '""')}"`,
+    e.coverage, e.url
   ]);
   const csv  = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
