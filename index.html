@@ -396,6 +396,25 @@
   }
   .result-count strong { color: var(--amber); font-size: 15px; }
 
+  .source-pills {
+    display: flex;
+    gap: 5px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+  }
+  .source-pill {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 3px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+  .source-pill.google     { border-color: rgba(91,141,238,.5); color: var(--blue); }
+  .source-pill.eventbrite { border-color: rgba(240,100,0,.5);  color: #f06400; }
+  .source-pill.facebook   { border-color: rgba(24,119,242,.5); color: #5b8def; }
+
   .query-tags {
     display: flex;
     gap: 6px;
@@ -814,6 +833,24 @@
       </div>
     </div>
 
+    <!-- Supplemental Sources -->
+    <div class="filter-section">
+      <div class="section-label">SUPPLEMENTAL SOURCES</div>
+      <div class="type-list">
+        <div class="type-item">
+          <input type="checkbox" id="suppEventbrite">
+          <label for="suppEventbrite">Eventbrite listings</label>
+        </div>
+        <div class="type-item">
+          <input type="checkbox" id="suppFacebook">
+          <label for="suppFacebook">Facebook Events</label>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--text-dim);margin-top:6px;font-family:var(--font-mono);line-height:1.5;">
+        Searches those sites via Google. Each supplement adds ~2–5 extra queries per state.
+      </div>
+    </div>
+
     <!-- Service Area Filter -->
     <div class="filter-section">
       <div class="section-label">SERVICE AREA FILTER</div>
@@ -845,7 +882,10 @@
 
     <!-- Toolbar -->
     <div class="results-toolbar">
-      <div class="result-count" id="resultCount">Run a search to see results</div>
+      <div>
+        <div class="result-count" id="resultCount">Run a search to see results</div>
+        <div class="source-pills" id="sourcePills" style="display:none"></div>
+      </div>
       <div class="query-tags" id="queryTags"></div>
       <div class="toolbar-right">
         <button class="export-btn" id="exportBtn" disabled>⬇ Export CSV</button>
@@ -1095,6 +1135,13 @@ function getSelectedTypes() {
   return types;
 }
 
+function getSelectedSupplements() {
+  const s = [];
+  if (document.getElementById('suppEventbrite').checked) s.push('eventbrite');
+  if (document.getElementById('suppFacebook').checked)   s.push('facebook');
+  return s;
+}
+
 // ═══════════════════════════════════════════
 //  SEARCH
 // ═══════════════════════════════════════════
@@ -1108,8 +1155,10 @@ async function runSearch() {
   const counties = getSelectedCounties();
   if (state !== 'ALL' && !counties.length) { showError('Please select at least one county.'); return; }
 
-  const types = getSelectedTypes();
+  const types       = getSelectedTypes();
   if (!types.length) { showError('Select at least one event type.'); return; }
+
+  const supplements = getSelectedSupplements();
 
   if (!zipCounty) {
     try {
@@ -1124,7 +1173,7 @@ async function runSearch() {
 
   clearError();
 
-  const queries = buildAllQueries(state, counties, types);
+  const queries = buildAllQueries(state, counties, types, supplements);
   if (!queries.length) { showError('No queries generated — check your selections.'); return; }
 
   if (queries.length > 50) {
@@ -1149,8 +1198,8 @@ async function runSearch() {
   const tagArea  = document.getElementById('queryTags');
   const dateFrom = document.getElementById('dateFrom').value;
   const dateTo   = document.getElementById('dateTo').value;
-  const dedupe   = new Map();
-  const results  = [];
+  const dedupe = new Map();
+  let   results = [];
 
   for (let i = 0; i < queries.length; i++) {
     if (stopRequested) break;
@@ -1242,14 +1291,27 @@ async function runSearch() {
   document.getElementById('loadingBar').style.display = 'none';
   tagArea.innerHTML = '';
 
+  const pillsEl = document.getElementById('sourcePills');
+
   if (!results.length) {
     setStatus('done', '0 RESULTS');
     document.getElementById('resultCount').textContent = 'No events found for the selected filters';
+    pillsEl.style.display = 'none';
     document.getElementById('tablePlaceholder').style.display = 'flex';
     document.getElementById('tablePlaceholder').innerHTML =
       '<div class="placeholder-icon">🔍</div><div class="placeholder-text">No events found — try different counties or a broader date range</div>';
   } else {
     setStatus('done', `${results.length} RESULTS`);
+    // Source breakdown pills
+    const counts = { google: 0, eventbrite: 0, facebook: 0 };
+    results.forEach(r => { counts[r.sourceType] = (counts[r.sourceType] || 0) + 1; });
+    const labels = { google: 'Google', eventbrite: 'Eventbrite', facebook: 'Facebook' };
+    const pills  = Object.entries(counts)
+      .filter(([, n]) => n > 0)
+      .map(([src, n]) => `<span class="source-pill ${src}">${labels[src]}: ${n}</span>`)
+      .join('');
+    pillsEl.innerHTML      = pills;
+    pillsEl.style.display  = Object.keys(counts).filter(k => counts[k] > 0).length > 1 ? 'flex' : 'none';
     renderResults(applyFilters(results));
   }
 }
@@ -1312,18 +1374,52 @@ function organicsToEvents(organics) {
 // ═══════════════════════════════════════════
 //  QUERY BUILDING
 // ═══════════════════════════════════════════
-function buildAllQueries(state, selectedCounties, types) {
+function buildAllQueries(state, selectedCounties, types, supplements = []) {
+  const seen    = new Set();
+  const queries = [];
+
+  const addUniq = q => { if (!seen.has(q)) { seen.add(q); queries.push(q); } };
+
   if (state === 'ALL') {
-    const seen    = new Set();
-    const queries = [];
     STATE_ORDER.forEach(s => {
-      buildQueriesForState(COUNTIES[s], s, types).forEach(q => {
-        if (!seen.has(q)) { seen.add(q); queries.push(q); }
+      buildQueriesForState(COUNTIES[s], s, types).forEach(addUniq);
+      buildSupplementQueriesForState(s, types, supplements).forEach(addUniq);
+    });
+  } else {
+    buildQueriesForState(selectedCounties, state, types).forEach(addUniq);
+    buildSupplementQueriesForState(state, types, supplements).forEach(addUniq);
+  }
+  return queries;
+}
+
+function buildSupplementQueriesForState(state, types, supplements) {
+  if (!supplements.length) return [];
+  const stateName = STATE_NAMES[state];
+  const year      = new Date().getFullYear();
+  const queries   = [];
+
+  // One or two focused phrases per type — site: searches already narrow scope.
+  const phraseMap = {
+    'Home Show':     ['"home show"', '"home improvement expo"'],
+    'Home & Garden': ['"home and garden show"'],
+    'County Fair':   ['"county fair"'],
+    'State Fair':    ['"state fair"'],
+    'Art & Craft':   ['"art fair"', '"craft show"'],
+  };
+  const siteMap = {
+    eventbrite: 'site:eventbrite.com',
+    facebook:   'site:facebook.com/events',
+  };
+
+  supplements.forEach(src => {
+    const prefix = siteMap[src];
+    types.forEach(type => {
+      (phraseMap[type] || []).forEach(phrase => {
+        queries.push(`${prefix} ${phrase} ${stateName} ${year}`);
       });
     });
-    return queries;
-  }
-  return buildQueriesForState(selectedCounties, state, types);
+  });
+  return queries;
 }
 
 function buildQueriesForState(counties, state, types) {
@@ -1397,12 +1493,17 @@ function normalizeEvent(evt, sourceQuery, searchState) {
     ? cityLine.slice(venue.length).replace(/^,\s*/, '').trim()
     : cityLine;
 
+  const sourceType = /site:eventbrite\.com/.test(sourceQuery) ? 'eventbrite'
+                   : /site:facebook\.com/.test(sourceQuery)   ? 'facebook'
+                   : 'google';
+
   return {
     name, startDate, endDate, venue, city, state, county, zip,
     type:          inferEventType(sourceQuery, name),
     url:           evt.link || '',
     source:        sourceQuery,
     sourceQueries: [],
+    sourceType,
     attendance:    evt.attendance || '',
     contact:       evt.contact    || ''
   };
@@ -1556,7 +1657,7 @@ function escHtml(s) {
 // ═══════════════════════════════════════════
 function exportCSV() {
   const visible = applyFilters(currentResults);
-  const headers = ['Event Name','Start Date','End Date','Venue','City','State','County','ZIP','Type','Attendance','Contact','Coverage','Source URL'];
+  const headers = ['Event Name','Start Date','End Date','Venue','City','State','County','ZIP','Type','Attendance','Contact','Coverage','Source','Source URL'];
   const rows    = visible.map(e => [
     `"${(e.name       || '').replace(/"/g, '""')}"`,
     e.startDate,
@@ -1567,7 +1668,7 @@ function exportCSV() {
     e.zip, e.type,
     `"${(e.attendance || '').replace(/"/g, '""')}"`,
     `"${(e.contact    || '').replace(/"/g, '""')}"`,
-    e.coverage, e.url
+    e.coverage, e.sourceType || 'google', e.url
   ]);
   const csv  = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
