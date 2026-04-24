@@ -1258,16 +1258,34 @@ async function callSerper(apiKey, query) {
     throw e;
   }
   const data = await resp.json();
-  // Log first response so we can verify the shape during testing
   if (!callSerper._logged) {
     callSerper._logged = true;
-    console.log('[HISS] First Serper response keys:', Object.keys(data));
-    console.log('[HISS] eventsResults count:', data.eventsResults?.length ?? 0);
-    if (data.eventsResults?.[0]) console.log('[HISS] Sample event:', JSON.stringify(data.eventsResults[0], null, 2));
-    else console.log('[HISS] No eventsResults — organic count:', data.organic?.length ?? 0);
+    console.log('[HISS] Response keys:', Object.keys(data));
+    console.log('[HISS] eventsResults:', data.eventsResults?.length ?? 0, '| organic:', data.organic?.length ?? 0);
+    if (data.eventsResults?.[0]) console.log('[HISS] Sample eventsResult:', JSON.stringify(data.eventsResults[0]));
+    if (data.organic?.[0])       console.log('[HISS] Sample organic:', JSON.stringify(data.organic[0]));
   }
-  // /search returns eventsResults; fall back to events key in case endpoint shape varies
-  return data.eventsResults || data.events || [];
+  // Prefer structured events from the carousel; fall back to parsing organic listings
+  if (data.eventsResults?.length) return data.eventsResults;
+  if (data.events?.length)        return data.events;
+  return organicsToEvents(data.organic || []);
+}
+
+// Home improvement shows rarely appear in Google's events carousel — they're
+// in organic results instead. This converts qualifying organic hits to event shape.
+const ORGANIC_EVENT_RE = /\b(home\s*show|home\s+improvement\s+(show|expo)|home\s*(and|&)\s*garden\s+show|remodeling\s+(show|expo)|county\s+fair|state\s+fair|art\s+fair|craft\s+(show|fair)|home\s+expo)\b/i;
+const ORGANIC_DATE_RE  = /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+\d{1,2}(?:\s*[-–]\s*\d{1,2})?,?\s*202\d/i;
+
+function organicsToEvents(organics) {
+  return organics
+    .filter(o => ORGANIC_EVENT_RE.test((o.title || '') + ' ' + (o.snippet || '')))
+    .map(o => ({
+      title:   (o.title || '').replace(/\s*[|–]\s*.{0,50}$/, '').replace(/\s*-\s*(tickets?|schedule|dates?|register|event\s+details?)\s*$/i, '').trim(),
+      date:    ((o.title + ' ' + o.snippet).match(ORGANIC_DATE_RE) || [])[0] || null,
+      address: o.snippet || '',
+      link:    o.link || ''
+    }))
+    .filter(e => e.title);
 }
 
 // ═══════════════════════════════════════════
@@ -1378,7 +1396,10 @@ function parseDates(dateInput) {
 
   // Strip the "– end" part before parsing the start date
   const cleanStart = rawStart.split(/\s*[–\-]\s*/)[0].trim();
-  const start = new Date(cleanStart);
+  const hasYear = /\b\d{4}\b/.test(cleanStart);
+  const yearFallback = (rangeStr.match(/\b(202\d)\b/) || [])[1] || '';
+  const startStr = hasYear ? cleanStart : (yearFallback ? `${cleanStart}, ${yearFallback}` : cleanStart);
+  const start = new Date(startStr);
   if (isNaN(start)) return { startDate: '', endDate: '' };
   const startDate = start.toISOString().slice(0, 10);
 
