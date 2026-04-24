@@ -1,0 +1,1345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HISS — Home Improvement Show Search</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #0e1118;
+    --surface:   #161a27;
+    --surface2:  #1e2335;
+    --border:    #2a2f47;
+    --border2:   #363d5a;
+    --amber:     #f0a500;
+    --amber-dim: rgba(240,165,0,.12);
+    --amber-glow:rgba(240,165,0,.25);
+    --teal:      #2dd4bf;
+    --blue:      #5b8dee;
+    --green:     #22c55e;
+    --green-dim: rgba(34,197,94,.15);
+    --red:       #ef4444;
+    --red-dim:   rgba(239,68,68,.15);
+    --gray-dim:  rgba(148,163,184,.1);
+    --text:      #dde3f5;
+    --text-muted:#6b7394;
+    --text-dim:  #3f4566;
+    --font-head: 'Barlow Condensed', sans-serif;
+    --font-body: 'IBM Plex Sans', sans-serif;
+    --font-mono: 'IBM Plex Mono', monospace;
+    --sidebar-w: 300px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 14px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    height: 100vh;
+  }
+
+  /* ── TOPBAR ── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    height: 52px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    gap: 16px;
+  }
+
+  .brand {
+    font-family: var(--font-head);
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    color: var(--amber);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .brand span {
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--text-muted);
+    letter-spacing: .04em;
+    font-family: var(--font-body);
+  }
+
+  .topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .api-key-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 10px;
+  }
+  .api-key-wrap label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: .08em;
+    white-space: nowrap;
+  }
+  .api-key-wrap input {
+    background: none;
+    border: none;
+    color: var(--teal);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    width: 200px;
+    outline: none;
+  }
+  .api-key-wrap input::placeholder { color: var(--text-dim); }
+
+  .status-pill {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .status-pill.running { color: var(--amber); border-color: var(--amber-dim); background: var(--amber-dim); }
+  .status-pill.done    { color: var(--green); border-color: var(--green-dim); background: var(--green-dim); }
+
+  /* ── LAYOUT ── */
+  .app-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* ── SIDEBAR ── */
+  aside.sidebar {
+    width: var(--sidebar-w);
+    flex-shrink: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 16px 0 0;
+  }
+
+  aside.sidebar::-webkit-scrollbar { width: 4px; }
+  aside.sidebar::-webkit-scrollbar-track { background: transparent; }
+  aside.sidebar::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  .filter-section {
+    padding: 0 16px 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4px;
+  }
+
+  .section-label {
+    font-family: var(--font-head);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .14em;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 4px;
+  }
+
+  .section-label .label-actions {
+    display: flex;
+    gap: 6px;
+  }
+
+  .label-btn {
+    font-family: var(--font-body);
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 2px 6px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .label-btn:hover { color: var(--amber); border-color: var(--amber); }
+
+  select.filter-select {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 13px;
+    padding: 7px 10px;
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7394' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+  }
+  select.filter-select:focus { border-color: var(--amber); }
+
+  .county-search {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 6px 10px;
+    outline: none;
+    margin-bottom: 8px;
+  }
+  .county-search:focus { border-color: var(--amber); }
+  .county-search::placeholder { color: var(--text-dim); }
+
+  .county-list {
+    max-height: 200px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .county-list::-webkit-scrollbar { width: 3px; }
+  .county-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  .county-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background .1s;
+  }
+  .county-item:hover { background: var(--surface2); }
+  .county-item input[type="checkbox"] { accent-color: var(--amber); cursor: pointer; }
+  .county-item label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text);
+    cursor: pointer;
+    flex: 1;
+  }
+
+  .date-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .date-field { display: flex; flex-direction: column; gap: 4px; }
+  .date-field span {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: .06em;
+  }
+  .date-field input[type="date"] {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 6px 8px;
+    outline: none;
+    width: 100%;
+    color-scheme: dark;
+  }
+  .date-field input[type="date"]:focus { border-color: var(--amber); }
+
+  .type-list { display: flex; flex-direction: column; gap: 6px; }
+  .type-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 6px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background .1s;
+  }
+  .type-item:hover { background: var(--surface2); }
+  .type-item input[type="checkbox"] { accent-color: var(--amber); cursor: pointer; }
+  .type-item label {
+    font-size: 12px;
+    color: var(--text);
+    cursor: pointer;
+    flex: 1;
+  }
+  .type-item .type-tag {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    padding: 2px 5px;
+    border-radius: 3px;
+    letter-spacing: .05em;
+  }
+
+  /* coverage filter */
+  .coverage-btns {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 4px;
+    margin-bottom: 10px;
+  }
+  .cov-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-muted);
+    font-size: 10px;
+    font-family: var(--font-body);
+    padding: 5px 4px;
+    cursor: pointer;
+    transition: all .15s;
+    text-align: center;
+  }
+  .cov-btn:hover { border-color: var(--border2); color: var(--text); }
+  .cov-btn.active { background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
+
+  .config-btn {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-muted);
+    font-family: var(--font-body);
+    font-size: 12px;
+    padding: 8px;
+    cursor: pointer;
+    transition: all .15s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    justify-content: center;
+  }
+  .config-btn:hover { border-color: var(--teal); color: var(--teal); }
+
+  /* search button */
+  .sidebar-footer {
+    padding: 14px 16px;
+    margin-top: auto;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+  }
+
+  .run-btn {
+    width: 100%;
+    background: var(--amber);
+    border: none;
+    border-radius: 8px;
+    color: #0e1118;
+    font-family: var(--font-head);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: .12em;
+    padding: 11px;
+    cursor: pointer;
+    transition: all .2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .run-btn:hover { background: #ffb820; transform: translateY(-1px); box-shadow: 0 4px 20px var(--amber-glow); }
+  .run-btn:active { transform: translateY(0); }
+  .run-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+  /* ── MAIN CONTENT ── */
+  main.results-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .results-toolbar {
+    display: flex;
+    align-items: center;
+    padding: 10px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    gap: 14px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+
+  .result-count {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .result-count strong { color: var(--amber); font-size: 15px; }
+
+  .query-tags {
+    display: flex;
+    gap: 6px;
+    flex: 1;
+    flex-wrap: wrap;
+  }
+  .query-tag {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 3px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .query-tag.ran { border-color: var(--teal); color: var(--teal); }
+
+  .toolbar-right { display: flex; gap: 8px; }
+
+  .export-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-muted);
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: all .15s;
+    white-space: nowrap;
+  }
+  .export-btn:hover { border-color: var(--green); color: var(--green); }
+  .export-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  /* table */
+  .table-wrap {
+    flex: 1;
+    overflow: auto;
+  }
+  .table-wrap::-webkit-scrollbar { width: 6px; height: 6px; }
+  .table-wrap::-webkit-scrollbar-track { background: var(--surface); }
+  .table-wrap::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+  table.results-tbl {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  table.results-tbl thead {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--surface2);
+  }
+
+  table.results-tbl th {
+    font-family: var(--font-head);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .12em;
+    color: var(--text-muted);
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    transition: color .15s;
+  }
+  table.results-tbl th:hover { color: var(--amber); }
+  table.results-tbl th.sorted { color: var(--amber); }
+
+  table.results-tbl td {
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+    color: var(--text);
+  }
+
+  table.results-tbl tbody tr { transition: background .1s; }
+  table.results-tbl tbody tr:hover { background: var(--surface2); }
+
+  table.results-tbl td.mono {
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+
+  .event-link {
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 500;
+    transition: color .15s;
+  }
+  .event-link:hover { color: var(--amber); }
+
+  .type-badge {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: .05em;
+    padding: 3px 7px;
+    border-radius: 3px;
+    white-space: nowrap;
+    font-weight: 500;
+  }
+  .type-badge.home-show  { background: rgba(91,141,238,.15); color: var(--blue);   border: 1px solid rgba(91,141,238,.3); }
+  .type-badge.county-fair{ background: rgba(45,212,191,.12); color: var(--teal);   border: 1px solid rgba(45,212,191,.3); }
+  .type-badge.state-fair { background: rgba(240,165,0,.12);  color: var(--amber);  border: 1px solid rgba(240,165,0,.3); }
+  .type-badge.garden     { background: rgba(34,197,94,.12);  color: var(--green);  border: 1px solid rgba(34,197,94,.3); }
+  .type-badge.art-craft  { background: rgba(168,85,247,.12); color: #c084fc;       border: 1px solid rgba(168,85,247,.3);}
+
+  .coverage-dot {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-family: var(--font-mono);
+  }
+  .coverage-dot::before {
+    content: '';
+    display: block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .coverage-dot.served    { color: var(--green); }
+  .coverage-dot.served::before { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .coverage-dot.not-served{ color: var(--red); }
+  .coverage-dot.not-served::before { background: var(--red); }
+  .coverage-dot.unknown   { color: var(--text-dim); }
+  .coverage-dot.unknown::before { background: var(--text-dim); }
+
+  /* empty / loading state */
+  .table-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 300px;
+    gap: 12px;
+    color: var(--text-muted);
+  }
+  .placeholder-icon { font-size: 36px; opacity: .3; }
+  .placeholder-text { font-family: var(--font-mono); font-size: 12px; }
+
+  /* loading bar */
+  .loading-bar {
+    height: 2px;
+    background: var(--border);
+    position: relative;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .loading-bar-fill {
+    position: absolute;
+    top: 0; left: -50%;
+    width: 50%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, var(--amber), transparent);
+    animation: loading-sweep 1.2s linear infinite;
+  }
+  @keyframes loading-sweep {
+    from { left: -50%; }
+    to   { left: 100%; }
+  }
+
+  /* ── COVERAGE MODAL ── */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.7);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+
+  .modal-box {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: 12px;
+    width: 680px;
+    max-width: 95vw;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .modal-title {
+    font-family: var(--font-head);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    color: var(--text);
+  }
+  .modal-subtitle {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    font-family: var(--font-mono);
+  }
+  .modal-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 20px;
+    cursor: pointer;
+    padding: 4px;
+    line-height: 1;
+    transition: color .15s;
+  }
+  .modal-close:hover { color: var(--text); }
+
+  .modal-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    align-content: start;
+  }
+  .modal-body::-webkit-scrollbar { width: 4px; }
+  .modal-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  .modal-state-group { display: flex; flex-direction: column; gap: 6px; }
+  .modal-state-label {
+    font-family: var(--font-head);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    color: var(--amber);
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .modal-state-label .state-actions { display: flex; gap: 6px; }
+
+  .modal-county-list {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
+  }
+  .modal-county-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 4px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .modal-county-item:hover { background: var(--surface2); }
+  .modal-county-item input { accent-color: var(--amber); cursor: pointer; }
+  .modal-county-item label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: color .1s;
+  }
+  .modal-county-item:hover label { color: var(--text); }
+  .modal-county-item input:checked + label { color: var(--amber); }
+
+  .modal-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .btn-secondary {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-muted);
+    font-family: var(--font-body);
+    font-size: 13px;
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .btn-secondary:hover { border-color: var(--border2); color: var(--text); }
+  .btn-primary {
+    background: var(--amber);
+    border: none;
+    border-radius: 6px;
+    color: #0e1118;
+    font-family: var(--font-head);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    padding: 8px 20px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .btn-primary:hover { background: #ffb820; }
+</style>
+</head>
+<body>
+
+<!-- ── TOPBAR ── -->
+<nav class="topbar">
+  <div class="brand">HISS <span>Home Improvement Show Search</span></div>
+  <div class="topbar-right">
+    <div class="api-key-wrap">
+      <label>SERPER KEY</label>
+      <input type="password" id="apiKeyInput" placeholder="paste key here..." autocomplete="off">
+    </div>
+    <div class="status-pill" id="statusPill">READY</div>
+  </div>
+</nav>
+
+<!-- ── APP BODY ── -->
+<div class="app-body">
+
+  <!-- ── SIDEBAR ── -->
+  <aside class="sidebar">
+
+    <!-- State -->
+    <div class="filter-section">
+      <div class="section-label">STATE</div>
+      <select class="filter-select" id="stateSelect">
+        <option value="">— Select State —</option>
+        <option value="MD">Maryland (MD)</option>
+        <option value="VA">Virginia (VA)</option>
+        <option value="PA">Pennsylvania (PA)</option>
+        <option value="DC">Washington DC</option>
+        <option value="NJ">New Jersey (NJ)</option>
+      </select>
+    </div>
+
+    <!-- Counties -->
+    <div class="filter-section">
+      <div class="section-label">
+        COUNTIES
+        <div class="label-actions">
+          <button class="label-btn" id="selectAllBtn">All</button>
+          <button class="label-btn" id="clearAllBtn">None</button>
+        </div>
+      </div>
+      <input class="county-search" type="text" id="countySearch" placeholder="Filter counties...">
+      <div class="county-list" id="countyList">
+        <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);padding:8px 6px;">
+          Select a state first
+        </div>
+      </div>
+    </div>
+
+    <!-- Date Range -->
+    <div class="filter-section">
+      <div class="section-label">DATE RANGE</div>
+      <div class="date-row">
+        <div class="date-field">
+          <span>FROM</span>
+          <input type="date" id="dateFrom">
+        </div>
+        <div class="date-field">
+          <span>TO</span>
+          <input type="date" id="dateTo">
+        </div>
+      </div>
+    </div>
+
+    <!-- Event Types -->
+    <div class="filter-section">
+      <div class="section-label">EVENT TYPES</div>
+      <div class="type-list">
+        <div class="type-item">
+          <input type="checkbox" id="typeHomeShow" checked>
+          <label for="typeHomeShow">Home Shows &amp; Remodeling Expos</label>
+          <span class="type-badge home-show">SHOW</span>
+        </div>
+        <div class="type-item">
+          <input type="checkbox" id="typeGarden" checked>
+          <label for="typeGarden">Home &amp; Garden Expos</label>
+          <span class="type-badge garden">GARDEN</span>
+        </div>
+        <div class="type-item">
+          <input type="checkbox" id="typeCountyFair" checked>
+          <label for="typeCountyFair">County Fairs</label>
+          <span class="type-badge county-fair">COUNTY</span>
+        </div>
+        <div class="type-item">
+          <input type="checkbox" id="typeStateFair" checked>
+          <label for="typeStateFair">State Fairs</label>
+          <span class="type-badge state-fair">STATE</span>
+        </div>
+        <div class="type-item">
+          <input type="checkbox" id="typeArt">
+          <label for="typeArt">Art &amp; Craft Shows</label>
+          <span class="type-badge art-craft">ART</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Service Area Filter -->
+    <div class="filter-section">
+      <div class="section-label">SERVICE AREA FILTER</div>
+      <div class="coverage-btns">
+        <button class="cov-btn active" data-cov="all">All Results</button>
+        <button class="cov-btn" data-cov="served">Served Only</button>
+        <button class="cov-btn" data-cov="not-served">Not Served</button>
+      </div>
+      <button class="config-btn" id="openCoverageModal">
+        ⚙ Configure Served Counties
+      </button>
+    </div>
+
+    <div class="sidebar-footer">
+      <button class="run-btn" id="runSearchBtn">▶ &nbsp;RUN SEARCH</button>
+    </div>
+  </aside>
+
+  <!-- ── MAIN RESULTS ── -->
+  <main class="results-area">
+
+    <!-- Loading bar (hidden until running) -->
+    <div class="loading-bar" id="loadingBar" style="display:none">
+      <div class="loading-bar-fill"></div>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="results-toolbar">
+      <div class="result-count" id="resultCount">Run a search to see results</div>
+      <div class="query-tags" id="queryTags"></div>
+      <div class="toolbar-right">
+        <button class="export-btn" id="exportBtn" disabled>⬇ Export CSV</button>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="table-wrap">
+      <table class="results-tbl" id="resultsTable" style="display:none">
+        <thead>
+          <tr>
+            <th data-col="name">EVENT NAME</th>
+            <th data-col="date">DATES</th>
+            <th data-col="venue">VENUE</th>
+            <th data-col="city">CITY</th>
+            <th data-col="county">COUNTY</th>
+            <th data-col="zip">ZIP</th>
+            <th data-col="type">TYPE</th>
+            <th data-col="coverage">COVERAGE</th>
+            <th>LINK</th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+
+      <div class="table-placeholder" id="tablePlaceholder">
+        <div class="placeholder-icon">🏠</div>
+        <div class="placeholder-text">Select a state and counties, then run a search</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ── COVERAGE MODAL ── -->
+<div class="modal-overlay" id="coverageModal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <div>
+        <div class="modal-title">Configure Served Counties</div>
+        <div class="modal-subtitle">Check counties where the company operates — saved automatically</div>
+      </div>
+      <button class="modal-close" id="closeCoverageModal">✕</button>
+    </div>
+    <div class="modal-body" id="coverageModalBody">
+      <!-- Populated by JS -->
+    </div>
+    <div class="modal-foot">
+      <button class="btn-secondary" id="clearCoverageBtn">Clear All</button>
+      <button class="btn-primary" id="saveCoverageBtn">Save &amp; Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════
+//  DATA
+// ═══════════════════════════════════════════
+
+const COUNTIES = {
+  MD: ['Allegany','Anne Arundel','Baltimore City','Baltimore County','Calvert','Caroline','Carroll','Cecil','Charles','Dorchester','Frederick','Garrett','Harford','Howard','Kent','Montgomery',"Prince George's","Queen Anne's","St. Mary's",'Somerset','Talbot','Washington','Wicomico','Worcester'],
+  VA: ['Accomack','Albemarle','Alexandria City','Alleghany','Amelia','Amherst','Appomattox','Arlington','Augusta','Bath','Bedford','Bland','Botetourt','Brunswick','Buchanan','Buckingham','Campbell','Caroline','Carroll','Charles City','Charlotte','Charlottesville City','Chesterfield','Clarke','Culpeper','Cumberland','Dickenson','Dinwiddie','Essex','Fairfax','Fairfax City','Falls Church City','Fauquier','Floyd','Fluvanna','Franklin','Franklin City','Frederick','Fredericksburg City','Giles','Gloucester','Goochland','Grayson','Greene','Greensville','Halifax','Hampton City','Hanover','Harrisonburg City','Henrico','Henry','Highland','Isle of Wight','James City','King and Queen','King George','King William','Lancaster','Lee','Loudoun','Louisa','Lunenburg','Lynchburg City','Madison','Manassas City','Manassas Park City','Mathews','Mecklenburg','Middlesex','Montgomery','Nelson','New Kent','Newport News City','Norfolk City','Northampton','Northumberland','Nottoway','Orange','Page','Patrick','Petersburg City','Pittsylvania','Poquoson City','Portsmouth City','Powhatan','Prince Edward','Prince George','Prince William','Pulaski','Radford City','Rappahannock','Richmond City','Richmond County','Roanoke City','Roanoke County','Rockbridge','Rockingham','Russell','Salem City','Scott','Shenandoah','Smyth','Southampton','Spotsylvania','Stafford','Staunton City','Suffolk City','Surry','Sussex','Tazewell','Virginia Beach City','Warren','Washington','Waynesboro City','Westmoreland','Williamsburg City','Winchester City','Wise','Wythe','York'],
+  PA: ['Adams','Allegheny','Armstrong','Beaver','Bedford','Berks','Blair','Bradford','Bucks','Butler','Cambria','Cameron','Carbon','Centre','Chester','Clarion','Clearfield','Clinton','Columbia','Crawford','Cumberland','Dauphin','Delaware','Elk','Erie','Fayette','Forest','Franklin','Fulton','Greene','Huntingdon','Indiana','Jefferson','Juniata','Lackawanna','Lancaster','Lawrence','Lebanon','Lehigh','Luzerne','Lycoming','McKean','Mercer','Mifflin','Monroe','Montgomery','Montour','Northampton','Northumberland','Perry','Philadelphia','Pike','Potter','Schuylkill','Snyder','Somerset','Sullivan','Susquehanna','Tioga','Union','Venango','Warren','Washington','Wayne','Westmoreland','Wyoming','York'],
+  NJ: ['Atlantic','Bergen','Burlington','Camden','Cape May','Cumberland','Essex','Gloucester','Hudson','Hunterdon','Mercer','Middlesex','Monmouth','Morris','Ocean','Passaic','Salem','Somerset','Sussex','Union','Warren'],
+  DC: ['District of Columbia']
+};
+
+const EVENT_TYPES = {
+  'Home Show': 'home-show',
+  'Home & Garden': 'garden',
+  'County Fair': 'county-fair',
+  'State Fair': 'state-fair',
+  'Art & Craft': 'art-craft'
+};
+
+// Mock data representing what the Serper API would return
+const MOCK_EVENTS = [
+  { name:'Frederick Spring Home Show', startDate:'2026-04-18', endDate:'2026-04-19', venue:'Frederick Fairgrounds', city:'Frederick', state:'MD', county:'Frederick', zip:'21701', type:'Home Show', url:'https://example.com', source:'home show Frederick County Maryland' },
+  { name:'Montgomery County Home & Garden Expo', startDate:'2026-04-25', endDate:'2026-04-26', venue:'Montgomery County Fairgrounds', city:'Gaithersburg', state:'MD', county:'Montgomery', zip:'20879', type:'Home & Garden', url:'https://example.com', source:'home and garden show Montgomery Maryland' },
+  { name:"Prince George's Spring Home Expo", startDate:'2026-05-02', endDate:'2026-05-03', venue:'Show Place Arena', city:'Upper Marlboro', state:'MD', county:"Prince George's", zip:'20772', type:'Home Show', url:'https://example.com', source:"home improvement expo Prince George's Maryland" },
+  { name:'Northern Virginia Home Improvement Show', startDate:'2026-05-09', endDate:'2026-05-10', venue:'Dulles Expo Center', city:'Chantilly', state:'VA', county:'Fairfax', zip:'20151', type:'Home Show', url:'https://example.com', source:'home show Fairfax County Virginia' },
+  { name:'Loudoun County Fair', startDate:'2026-08-04', endDate:'2026-08-09', venue:'Loudoun County Fairgrounds', city:'Leesburg', state:'VA', county:'Loudoun', zip:'20175', type:'County Fair', url:'https://example.com', source:'county fair Loudoun Virginia' },
+  { name:'Maryland State Fair', startDate:'2026-08-27', endDate:'2026-09-07', venue:'State Fairgrounds', city:'Timonium', state:'MD', county:'Baltimore County', zip:'21093', type:'State Fair', url:'https://example.com', source:'state fair Maryland' },
+  { name:'Prince William Home & Remodeling Expo', startDate:'2026-05-16', endDate:'2026-05-17', venue:'Hylton Performing Arts Ctr', city:'Manassas', state:'VA', county:'Prince William', zip:'20110', type:'Home Show', url:'https://example.com', source:'home improvement expo Prince William Virginia' },
+  { name:'Bucks County Home & Garden Show', startDate:'2026-03-28', endDate:'2026-03-29', venue:'Bucks County Expo Center', city:'Oaks', state:'PA', county:'Montgomery', zip:'19456', type:'Home & Garden', url:'https://example.com', source:'home and garden show Bucks County Pennsylvania' },
+  { name:'Lancaster County Home Show', startDate:'2026-04-11', endDate:'2026-04-13', venue:'Lancaster County Convention Center', city:'Lancaster', state:'PA', county:'Lancaster', zip:'17602', type:'Home Show', url:'https://example.com', source:'home show Lancaster Pennsylvania' },
+  { name:'Bergen County Home Improvement Expo', startDate:'2026-05-23', endDate:'2026-05-24', venue:'Meadowlands Expo Center', city:'Secaucus', state:'NJ', county:'Hudson', zip:'07094', type:'Home Show', url:'https://example.com', source:'home improvement expo Bergen County New Jersey' },
+  { name:'DC Metro Spring Home Show', startDate:'2026-04-04', endDate:'2026-04-05', venue:'Walter E. Washington Conv. Ctr', city:'Washington', state:'DC', county:'District of Columbia', zip:'20001', type:'Home Show', url:'https://example.com', source:'home show Washington DC' },
+  { name:'Howard County Fair', startDate:'2026-07-28', endDate:'2026-08-02', venue:'Howard County Fairgrounds', city:'West Friendship', state:'MD', county:'Howard', zip:'21794', type:'County Fair', url:'https://example.com', source:'county fair Howard County Maryland' },
+  { name:'Stafford Home & Garden Expo', startDate:'2026-06-06', endDate:'2026-06-07', venue:'Stafford Expo Center', city:'Stafford', state:'VA', county:'Stafford', zip:'22554', type:'Home & Garden', url:'https://example.com', source:'home and garden show Stafford Virginia' },
+  { name:'Philadelphia Home Show', startDate:'2026-02-07', endDate:'2026-02-09', venue:'Pennsylvania Convention Center', city:'Philadelphia', state:'PA', county:'Philadelphia', zip:'19103', type:'Home Show', url:'https://example.com', source:'home show Philadelphia Pennsylvania' },
+  { name:'Spotsylvania Home Improvement Expo', startDate:'2026-05-30', endDate:'2026-05-31', venue:'Spotsylvania Towne Centre', city:'Fredericksburg', state:'VA', county:'Spotsylvania', zip:'22407', type:'Home Show', url:'https://example.com', source:'home improvement expo Spotsylvania Virginia' },
+];
+
+// ═══════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════
+let currentResults = [];
+let coverageFilter = 'all';
+let servedCounties = {};  // { "MD:Montgomery": true, ... }
+let sortCol = 'date';
+let sortDir = 1;
+
+// ═══════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  loadFromStorage();
+  setDefaultDates();
+  bindEvents();
+});
+
+function loadFromStorage() {
+  const key = localStorage.getItem('hiss_apiKey');
+  if (key) document.getElementById('apiKeyInput').value = key;
+  const cov = localStorage.getItem('hiss_coverage');
+  if (cov) servedCounties = JSON.parse(cov);
+}
+
+function setDefaultDates() {
+  const today = new Date();
+  const sixMonths = new Date(today);
+  sixMonths.setMonth(today.getMonth() + 6);
+  document.getElementById('dateFrom').value = today.toISOString().split('T')[0];
+  document.getElementById('dateTo').value   = sixMonths.toISOString().split('T')[0];
+}
+
+function bindEvents() {
+  document.getElementById('apiKeyInput').addEventListener('change', e => {
+    localStorage.setItem('hiss_apiKey', e.target.value);
+  });
+
+  document.getElementById('stateSelect').addEventListener('change', e => {
+    populateCounties(e.target.value);
+    document.getElementById('countySearch').value = '';
+  });
+
+  document.getElementById('countySearch').addEventListener('input', e => {
+    filterCountyList(e.target.value);
+  });
+
+  document.getElementById('selectAllBtn').addEventListener('click', () => {
+    document.querySelectorAll('#countyList input[type="checkbox"]').forEach(c => c.checked = true);
+  });
+  document.getElementById('clearAllBtn').addEventListener('click', () => {
+    document.querySelectorAll('#countyList input[type="checkbox"]').forEach(c => c.checked = false);
+  });
+
+  document.querySelectorAll('.cov-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.cov-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      coverageFilter = btn.dataset.cov;
+      if (currentResults.length) renderResults(applyFilters(currentResults));
+    });
+  });
+
+  document.getElementById('runSearchBtn').addEventListener('click', runSearch);
+  document.getElementById('exportBtn').addEventListener('click', exportCSV);
+
+  // Coverage modal
+  document.getElementById('openCoverageModal').addEventListener('click', openCovModal);
+  document.getElementById('closeCoverageModal').addEventListener('click', closeCovModal);
+  document.getElementById('saveCoverageBtn').addEventListener('click', saveCoverage);
+  document.getElementById('clearCoverageBtn').addEventListener('click', () => {
+    document.querySelectorAll('#coverageModalBody input[type="checkbox"]').forEach(c => c.checked = false);
+  });
+  document.getElementById('coverageModal').addEventListener('click', e => {
+    if (e.target === document.getElementById('coverageModal')) closeCovModal();
+  });
+
+  // Table sort
+  document.querySelectorAll('table.results-tbl th[data-col]').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      if (sortCol === col) sortDir *= -1;
+      else { sortCol = col; sortDir = 1; }
+      document.querySelectorAll('th').forEach(t => t.classList.remove('sorted'));
+      th.classList.add('sorted');
+      if (currentResults.length) renderResults(applyFilters(currentResults));
+    });
+  });
+}
+
+// ═══════════════════════════════════════════
+//  COUNTIES
+// ═══════════════════════════════════════════
+function populateCounties(state) {
+  const list = document.getElementById('countyList');
+  if (!state || !COUNTIES[state]) {
+    list.innerHTML = '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);padding:8px 6px;">Select a state first</div>';
+    return;
+  }
+  list.innerHTML = '';
+  COUNTIES[state].forEach(county => {
+    const item = document.createElement('div');
+    item.className = 'county-item';
+    item.dataset.county = county.toLowerCase();
+    item.innerHTML = `<input type="checkbox" id="c_${county.replace(/\s+/g,'_')}" value="${county}" checked>
+                      <label for="c_${county.replace(/\s+/g,'_')}">${county}</label>`;
+    list.appendChild(item);
+  });
+}
+
+function filterCountyList(query) {
+  const q = query.toLowerCase();
+  document.querySelectorAll('#countyList .county-item').forEach(item => {
+    item.style.display = item.dataset.county.includes(q) ? '' : 'none';
+  });
+}
+
+function getSelectedCounties() {
+  return Array.from(document.querySelectorAll('#countyList input[type="checkbox"]:checked'))
+    .map(c => c.value);
+}
+
+// ═══════════════════════════════════════════
+//  SEARCH
+// ═══════════════════════════════════════════
+async function runSearch() {
+  const state = document.getElementById('stateSelect').value;
+  if (!state) { alert('Please select a state.'); return; }
+
+  const counties = getSelectedCounties();
+  if (!counties.length) { alert('Please select at least one county.'); return; }
+
+  const types = [];
+  if (document.getElementById('typeHomeShow').checked)   types.push('Home Show');
+  if (document.getElementById('typeGarden').checked)     types.push('Home & Garden');
+  if (document.getElementById('typeCountyFair').checked) types.push('County Fair');
+  if (document.getElementById('typeStateFair').checked)  types.push('State Fair');
+  if (document.getElementById('typeArt').checked)        types.push('Art & Craft');
+
+  if (!types.length) { alert('Select at least one event type.'); return; }
+
+  // Build query list for display
+  const queries = buildQueries(counties, state, types);
+
+  setStatus('running', 'SEARCHING...');
+  document.getElementById('loadingBar').style.display = 'block';
+  document.getElementById('runSearchBtn').disabled = true;
+  document.getElementById('resultsTable').style.display = 'none';
+  document.getElementById('tablePlaceholder').style.display = 'flex';
+
+  // Show query tags
+  const tagArea = document.getElementById('queryTags');
+  tagArea.innerHTML = '';
+  queries.slice(0, 8).forEach(q => {
+    const tag = document.createElement('div');
+    tag.className = 'query-tag';
+    tag.textContent = q;
+    tag.id = 'qtag_' + q.replace(/\W+/g,'_');
+    tagArea.appendChild(tag);
+  });
+  if (queries.length > 8) {
+    const more = document.createElement('div');
+    more.className = 'query-tag';
+    more.textContent = `+${queries.length - 8} more`;
+    tagArea.appendChild(more);
+  }
+
+  document.getElementById('resultCount').textContent = 'Searching…';
+
+  // Simulate API calls with progressive tag updates
+  await simulateSearch(queries);
+
+  // Filter mock data to match selection
+  const dateFrom = document.getElementById('dateFrom').value;
+  const dateTo   = document.getElementById('dateTo').value;
+
+  let results = MOCK_EVENTS.filter(e => {
+    const stateMatch  = e.state === state;
+    const countyMatch = counties.includes(e.county);
+    const typeMatch   = types.includes(e.type);
+    const dateMatch   = (!dateFrom || e.startDate >= dateFrom) && (!dateTo || e.startDate <= dateTo);
+    return stateMatch && countyMatch && typeMatch && dateMatch;
+  });
+
+  // Annotate coverage
+  results = results.map(e => ({
+    ...e,
+    coverage: getCoverage(e.state, e.county)
+  }));
+
+  currentResults = results;
+
+  document.getElementById('loadingBar').style.display = 'none';
+  document.getElementById('runSearchBtn').disabled = false;
+  setStatus('done', `${results.length} RESULTS`);
+
+  const visible = applyFilters(results);
+  renderResults(visible);
+}
+
+function buildQueries(counties, state, types) {
+  const stateNames = { MD:'Maryland', VA:'Virginia', PA:'Pennsylvania', DC:'Washington DC', NJ:'New Jersey' };
+  const stateName = stateNames[state];
+  const queries = [];
+
+  const queryTemplates = {
+    'Home Show':     c => `home show ${c} ${stateName}`,
+    'Home & Garden': c => `home and garden show ${c} ${stateName}`,
+    'County Fair':   c => `county fair ${c} ${stateName}`,
+    'State Fair':    () => `state fair ${stateName}`,
+    'Art & Craft':   c => `art craft show ${c} ${stateName}`,
+  };
+
+  const seen = new Set();
+  types.forEach(type => {
+    const tmpl = queryTemplates[type];
+    if (!tmpl) return;
+    if (type === 'State Fair') {
+      const q = tmpl();
+      if (!seen.has(q)) { seen.add(q); queries.push(q); }
+    } else {
+      counties.slice(0, 6).forEach(county => { // cap for display
+        const q = tmpl(county);
+        if (!seen.has(q)) { seen.add(q); queries.push(q); }
+      });
+    }
+  });
+  return queries;
+}
+
+async function simulateSearch(queries) {
+  for (let i = 0; i < Math.min(queries.length, 8); i++) {
+    await delay(220);
+    const tagId = 'qtag_' + queries[i].replace(/\W+/g,'_');
+    const tag = document.getElementById(tagId);
+    if (tag) tag.classList.add('ran');
+  }
+  await delay(300);
+}
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ═══════════════════════════════════════════
+//  COVERAGE
+// ═══════════════════════════════════════════
+function getCoverage(state, county) {
+  const key = `${state}:${county}`;
+  if (Object.keys(servedCounties).length === 0) return 'unknown';
+  return servedCounties[key] ? 'served' : 'not-served';
+}
+
+function applyFilters(results) {
+  if (coverageFilter === 'all') return sortResults(results);
+  return sortResults(results.filter(r => {
+    if (coverageFilter === 'served')     return r.coverage === 'served';
+    if (coverageFilter === 'not-served') return r.coverage !== 'served';
+    return true;
+  }));
+}
+
+function sortResults(results) {
+  return [...results].sort((a, b) => {
+    let va = a[sortCol] || '', vb = b[sortCol] || '';
+    return va < vb ? -sortDir : va > vb ? sortDir : 0;
+  });
+}
+
+// ═══════════════════════════════════════════
+//  RENDER
+// ═══════════════════════════════════════════
+function renderResults(results) {
+  const tbody = document.getElementById('resultsBody');
+  const table = document.getElementById('resultsTable');
+  const placeholder = document.getElementById('tablePlaceholder');
+
+  document.getElementById('resultCount').innerHTML =
+    results.length
+      ? `<strong>${results.length}</strong> events found`
+      : 'No events match current filters';
+
+  document.getElementById('exportBtn').disabled = results.length === 0;
+
+  if (!results.length) {
+    table.style.display = 'none';
+    placeholder.style.display = 'flex';
+    placeholder.innerHTML = '<div class="placeholder-icon">🔍</div><div class="placeholder-text">No events match the selected filters</div>';
+    return;
+  }
+
+  placeholder.style.display = 'none';
+  table.style.display = 'table';
+
+  tbody.innerHTML = results.map(e => {
+    const typeClass = EVENT_TYPES[e.type] || 'home-show';
+    const covLabel = { served: '✓ Served', 'not-served': '✗ Not Served', unknown: '? Unconfigured' }[e.coverage];
+    const dateStr = e.startDate === e.endDate || !e.endDate
+      ? fmtDate(e.startDate)
+      : `${fmtDate(e.startDate)} – ${fmtDate(e.endDate)}`;
+
+    return `<tr>
+      <td><a class="event-link" href="${e.url}" target="_blank">${e.name}</a></td>
+      <td class="mono">${dateStr}</td>
+      <td>${e.venue}</td>
+      <td>${e.city}</td>
+      <td class="mono">${e.county}</td>
+      <td class="mono">${e.zip}</td>
+      <td><span class="type-badge ${typeClass}">${e.type.toUpperCase()}</span></td>
+      <td><span class="coverage-dot ${e.coverage}">${covLabel}</span></td>
+      <td><a class="event-link" href="${e.url}" target="_blank" title="View event">↗</a></td>
+    </tr>`;
+  }).join('');
+}
+
+function fmtDate(dateStr) {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+}
+
+// ═══════════════════════════════════════════
+//  CSV EXPORT
+// ═══════════════════════════════════════════
+function exportCSV() {
+  const visible = applyFilters(currentResults);
+  const headers = ['Event Name','Start Date','End Date','Venue','City','State','County','ZIP','Type','Coverage','Source URL'];
+  const rows = visible.map(e => [
+    `"${e.name}"`, e.startDate, e.endDate || e.startDate,
+    `"${e.venue}"`, e.city, e.state, `"${e.county}"`, e.zip,
+    e.type, e.coverage, e.url
+  ]);
+  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  const blob = new Blob([csv], { type:'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `hiss-results-${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+
+// ═══════════════════════════════════════════
+//  COVERAGE MODAL
+// ═══════════════════════════════════════════
+function openCovModal() {
+  const body = document.getElementById('coverageModalBody');
+  body.innerHTML = '';
+
+  const stateOrder = ['MD','VA','PA','NJ','DC'];
+  const stateNames = { MD:'Maryland', VA:'Virginia', PA:'Pennsylvania', NJ:'New Jersey', DC:'Washington DC' };
+
+  stateOrder.forEach(state => {
+    const counties = COUNTIES[state];
+    const group = document.createElement('div');
+    group.className = 'modal-state-group';
+
+    const header = document.createElement('div');
+    header.className = 'modal-state-label';
+    header.innerHTML = `${stateNames[state]}
+      <div class="state-actions">
+        <button class="label-btn" onclick="modalSelectAll('${state}')">All</button>
+        <button class="label-btn" onclick="modalClearAll('${state}')">None</button>
+      </div>`;
+    group.appendChild(header);
+
+    const grid = document.createElement('div');
+    grid.className = 'modal-county-list';
+
+    counties.forEach(county => {
+      const key = `${state}:${county}`;
+      const item = document.createElement('div');
+      item.className = 'modal-county-item';
+      item.innerHTML = `<input type="checkbox" id="m_${key.replace(/\W+/g,'_')}" data-key="${key}" ${servedCounties[key] ? 'checked' : ''}>
+                        <label for="m_${key.replace(/\W+/g,'_')}">${county}</label>`;
+      grid.appendChild(item);
+    });
+
+    group.appendChild(grid);
+    body.appendChild(group);
+  });
+
+  document.getElementById('coverageModal').classList.add('open');
+}
+
+function closeCovModal() {
+  document.getElementById('coverageModal').classList.remove('open');
+}
+
+function saveCoverage() {
+  servedCounties = {};
+  document.querySelectorAll('#coverageModalBody input[type="checkbox"]:checked').forEach(cb => {
+    servedCounties[cb.dataset.key] = true;
+  });
+  localStorage.setItem('hiss_coverage', JSON.stringify(servedCounties));
+  closeCovModal();
+  if (currentResults.length) {
+    currentResults = currentResults.map(e => ({ ...e, coverage: getCoverage(e.state, e.county) }));
+    renderResults(applyFilters(currentResults));
+  }
+}
+
+function modalSelectAll(state) {
+  document.querySelectorAll(`#coverageModalBody input[data-key^="${state}:"]`).forEach(c => c.checked = true);
+}
+function modalClearAll(state) {
+  document.querySelectorAll(`#coverageModalBody input[data-key^="${state}:"]`).forEach(c => c.checked = false);
+}
+
+// ═══════════════════════════════════════════
+//  UTILS
+// ═══════════════════════════════════════════
+function setStatus(type, text) {
+  const pill = document.getElementById('statusPill');
+  pill.textContent = text;
+  pill.className = 'status-pill ' + type;
+}
+</script>
+</body>
+</html>
