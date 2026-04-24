@@ -4,7 +4,7 @@
 # U.S. Census Bureau's 2020 ZCTA-to-County relationship file.
 #
 # Source: https://www2.census.gov/geo/docs/maps-data/data/rel2020/zcta520/
-# Filtered to VA, MD, PA, DC, NJ (state FIPS 51, 24, 42, 11, 34).
+# Filtered to VA, MD, PA, DC, NJ, DE (state FIPS 51, 24, 42, 11, 34, 10).
 # When a ZCTA spans multiple counties, the county with the largest
 # land-area overlap is chosen as the primary.
 #
@@ -27,7 +27,7 @@ mkdir -p "$DATA_DIR"
 echo "Downloading ZCTA-to-County relationship file..."
 curl -fsSL "$URL" -o "$RAW"
 
-echo "Filtering to VA, MD, PA, DC, NJ and selecting primary county per ZCTA..."
+echo "Filtering to VA, MD, PA, DC, NJ, DE and selecting primary county per ZCTA..."
 # File is pipe-delimited. Relevant columns (1-indexed):
 #   2 = GEOID_ZCTA5_20     5-digit ZIP
 #   4 = GEOID_COUNTY_20    5-digit county FIPS (first 2 = state FIPS)
@@ -37,7 +37,7 @@ awk -F'|' '
   NR == 1 { next }
   {
     state = substr($4, 1, 2)
-    if (state != "51" && state != "24" && state != "42" && state != "11" && state != "34") next
+    if (state != "51" && state != "24" && state != "42" && state != "11" && state != "34" && state != "10") next
     zip = $2; county = $5; area = $8 + 0
     if (!(zip in best_area) || area > best_area[zip]) {
       best_area[zip] = area
@@ -51,13 +51,13 @@ awk -F'|' '
 ' "$RAW" | sort > "$TMP/filtered.tsv"
 
 ROWS=$(wc -l < "$TMP/filtered.tsv")
-echo "Kept $ROWS unique ZCTAs across the 5 target states/jurisdictions."
+echo "Kept $ROWS unique ZCTAs across the 6 target states/jurisdictions."
 
 echo "Emitting JSON..."
 python3 - "$TMP/filtered.tsv" "$OUT" <<'PY'
 import json, sys
 inp, outp = sys.argv[1], sys.argv[2]
-fips_state = {"51":"VA","24":"MD","42":"PA","11":"DC","34":"NJ"}
+fips_state = {"51":"VA","24":"MD","42":"PA","11":"DC","34":"NJ","10":"DE"}
 data = {}
 with open(inp) as f:
     for line in f:

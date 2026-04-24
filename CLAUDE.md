@@ -115,7 +115,7 @@ This project is designed to be continued by Claude Code. When starting a new ses
    git add data/zip-county.json
    git commit -m "Regenerate ZIP→county lookup from Census 2020 data"
    ```
-   The script downloads the U.S. Census ZCTA-to-County relationship file, filters it to VA/MD/PA/DC/NJ, and emits a compact JSON lookup. Requires `bash`, `curl`, `awk`, and `python3`. Runs in a few seconds on a normal connection — the fetch is the dominant cost; ~5 MB download, ~55k rows nationally, ~10–15k kept after filtering.
+   The script downloads the U.S. Census ZCTA-to-County relationship file, filters it to VA/MD/PA/DC/NJ/DE, and emits a compact JSON lookup. Requires `bash`, `curl`, `awk`, and `python3`. Runs in a few seconds on a normal connection — the fetch is the dominant cost; ~5 MB download, ~55k rows nationally, ~10–15k kept after filtering.
 3. **Open `index.html`** in a browser to see the current mock-data prototype. The UI is built; the Serper API wiring is the next thing to implement.
 
 ### Branch conventions
@@ -189,9 +189,9 @@ Results are merged and deduplicated by event name + date.
 
 ## Geographic Scope
 
-**States:** Virginia (VA), Maryland (MD), Pennsylvania (PA), Washington DC, New Jersey (NJ)
+**States:** Virginia (VA), Maryland (MD), Pennsylvania (PA), Washington DC, New Jersey (NJ), Delaware (DE)
 
-Full county lists are pre-loaded in the frontend for all 5 states/jurisdictions. DC is a single entry (District of Columbia).
+Full county lists are pre-loaded in the frontend for all 6 states/jurisdictions. DC is a single entry (District of Columbia).
 
 **Key data fields required in every result:**
 - County
@@ -270,7 +270,7 @@ Before touching the frontend, run the build script once to produce the ZIP→cou
 ./scripts/build-zip-county.sh
 ```
 
-Commit the resulting `data/zip-county.json`. Expected size: a few hundred KB, ~10–15k ZCTAs across VA/MD/PA/DC/NJ. Re-run whenever the Census publishes a refreshed relationship file (infrequent — the file tracks decennial Census geography).
+Commit the resulting `data/zip-county.json`. Expected size: a few hundred KB, ~10–15k ZCTAs across VA/MD/PA/DC/NJ/DE. Re-run whenever the Census publishes a refreshed relationship file (infrequent — the file tracks decennial Census geography).
 
 ### 2. Wire up Serper.dev API
 
@@ -309,7 +309,7 @@ Serper/Google don't always hand back a clean county. Resolution order:
 ### 5. Served Counties modal
 
 - Opens from a top-right button in `index.html`.
-- Lists every county in VA/MD/PA/DC/NJ grouped by state, each with a checkbox.
+- Lists every county in VA/MD/PA/DC/NJ/DE grouped by state, each with a checkbox.
 - Persists to `localStorage` under `hiss.servedCounties` as an array of `"STATE:County Name"` strings (example: `["MD:Frederick County", "VA:Fairfax County", "DC:District of Columbia"]`).
 - **No baked-in defaults.** First-run state is an empty array — all results show gray until the coordinator configures coverage.
 - **Import/Export** buttons round-trip the array as JSON so the coordinator can back it up or share it across machines/browsers.
@@ -536,7 +536,7 @@ git push
 ## Sanity checks
 
 - `git log --oneline -6` should show your two new commits on top of `ddc09ff Baseline HTML plus CLAUDE Code handoff.`
-- `data/zip-county.json` should be ~several hundred KB with 10–15k entries covering VA/MD/PA/DC/NJ.
+- `data/zip-county.json` should be ~several hundred KB with 10–15k entries covering VA/MD/PA/DC/NJ/DE.
 - Opening `index.html` in a browser should still show the mock-data prototype (this handoff doesn't touch frontend behavior).
 
 ## What to work on after the push lands
