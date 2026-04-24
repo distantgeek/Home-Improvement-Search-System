@@ -26,7 +26,7 @@ The modal has **Export** and **Import** buttons that round-trip the served list 
   ```json
   ["MD:Frederick County","MD:Carroll County","VA:Fairfax County","DC:District of Columbia"]
   ```
-- **State codes:** `VA`, `MD`, `PA`, `DC`, `NJ` (matching the `state` field in `data/zip-county.json`).
+- **State codes:** `VA`, `MD`, `PA`, `DC`, `NJ`, `DE` (matching the `state` field in `data/zip-county.json`).
 - **County name format:** exact string from the Census relationship file's `NAMELSAD_COUNTY_20` column (e.g. `"Frederick County"`, not `"Frederick"`). DC is stored as `"DC:District of Columbia"`.
 - **Empty / missing key:** treat as an empty array. Never seed defaults.
 
@@ -60,6 +60,6 @@ When enriching a Serper result into a table row, the frontend decides the served
 
 ## Behavior notes
 
-- The full county master list for VA, MD, PA, DC, and NJ is pre-loaded in `index.html`. The coordinator only chooses which of those to mark as served.
+- The full county master list for VA, MD, PA, DC, NJ, and DE is pre-loaded in `index.html`. The coordinator only chooses which of those to mark as served.
 - Changes in the modal take effect immediately — existing result rows re-evaluate their served/unserved badge without a page reload. Implement this by keeping the served set in a reactive variable and re-rendering on change.
 - ZIP → county resolution uses `data/zip-county.json` (generated from the U.S. Census ZCTA-to-County relationship file; see `scripts/build-zip-county.sh`).

@@ -738,6 +738,7 @@
         <option value="PA">Pennsylvania (PA)</option>
         <option value="DC">Washington DC</option>
         <option value="NJ">New Jersey (NJ)</option>
+        <option value="DE">Delaware (DE)</option>
       </select>
     </div>
 
@@ -897,6 +898,7 @@ const COUNTIES = {
   VA: ['Accomack','Albemarle','Alexandria City','Alleghany','Amelia','Amherst','Appomattox','Arlington','Augusta','Bath','Bedford','Bland','Botetourt','Brunswick','Buchanan','Buckingham','Campbell','Caroline','Carroll','Charles City','Charlotte','Charlottesville City','Chesterfield','Clarke','Culpeper','Cumberland','Dickenson','Dinwiddie','Essex','Fairfax','Fairfax City','Falls Church City','Fauquier','Floyd','Fluvanna','Franklin','Franklin City','Frederick','Fredericksburg City','Giles','Gloucester','Goochland','Grayson','Greene','Greensville','Halifax','Hampton City','Hanover','Harrisonburg City','Henrico','Henry','Highland','Isle of Wight','James City','King and Queen','King George','King William','Lancaster','Lee','Loudoun','Louisa','Lunenburg','Lynchburg City','Madison','Manassas City','Manassas Park City','Mathews','Mecklenburg','Middlesex','Montgomery','Nelson','New Kent','Newport News City','Norfolk City','Northampton','Northumberland','Nottoway','Orange','Page','Patrick','Petersburg City','Pittsylvania','Poquoson City','Portsmouth City','Powhatan','Prince Edward','Prince George','Prince William','Pulaski','Radford City','Rappahannock','Richmond City','Richmond County','Roanoke City','Roanoke County','Rockbridge','Rockingham','Russell','Salem City','Scott','Shenandoah','Smyth','Southampton','Spotsylvania','Stafford','Staunton City','Suffolk City','Surry','Sussex','Tazewell','Virginia Beach City','Warren','Washington','Waynesboro City','Westmoreland','Williamsburg City','Winchester City','Wise','Wythe','York'],
   PA: ['Adams','Allegheny','Armstrong','Beaver','Bedford','Berks','Blair','Bradford','Bucks','Butler','Cambria','Cameron','Carbon','Centre','Chester','Clarion','Clearfield','Clinton','Columbia','Crawford','Cumberland','Dauphin','Delaware','Elk','Erie','Fayette','Forest','Franklin','Fulton','Greene','Huntingdon','Indiana','Jefferson','Juniata','Lackawanna','Lancaster','Lawrence','Lebanon','Lehigh','Luzerne','Lycoming','McKean','Mercer','Mifflin','Monroe','Montgomery','Montour','Northampton','Northumberland','Perry','Philadelphia','Pike','Potter','Schuylkill','Snyder','Somerset','Sullivan','Susquehanna','Tioga','Union','Venango','Warren','Washington','Wayne','Westmoreland','Wyoming','York'],
   NJ: ['Atlantic','Bergen','Burlington','Camden','Cape May','Cumberland','Essex','Gloucester','Hudson','Hunterdon','Mercer','Middlesex','Monmouth','Morris','Ocean','Passaic','Salem','Somerset','Sussex','Union','Warren'],
+  DE: ['Kent County','New Castle County','Sussex County'],
   DC: ['District of Columbia']
 };
 
@@ -1128,7 +1130,7 @@ async function runSearch() {
 }
 
 function buildQueries(counties, state, types) {
-  const stateNames = { MD:'Maryland', VA:'Virginia', PA:'Pennsylvania', DC:'Washington DC', NJ:'New Jersey' };
+  const stateNames = { MD:'Maryland', VA:'Virginia', PA:'Pennsylvania', DC:'Washington DC', NJ:'New Jersey', DE:'Delaware' };
   const stateName = stateNames[state];
   const queries = [];
 
@@ -1272,8 +1274,8 @@ function openCovModal() {
   const body = document.getElementById('coverageModalBody');
   body.innerHTML = '';
 
-  const stateOrder = ['MD','VA','PA','NJ','DC'];
-  const stateNames = { MD:'Maryland', VA:'Virginia', PA:'Pennsylvania', NJ:'New Jersey', DC:'Washington DC' };
+  const stateOrder = ['MD','VA','PA','NJ','DE','DC'];
+  const stateNames = { MD:'Maryland', VA:'Virginia', PA:'Pennsylvania', NJ:'New Jersey', DE:'Delaware', DC:'Washington DC' };
 
   stateOrder.forEach(state => {
     const counties = COUNTIES[state];
