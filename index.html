@@ -1239,10 +1239,10 @@ async function runSearch() {
 }
 
 async function callSerper(apiKey, query) {
-  const resp = await fetch('https://google.serper.dev/events', {
+  const resp = await fetch('https://google.serper.dev/search', {
     method:  'POST',
     headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ q: query, gl: 'us', hl: 'en' })
+    body:    JSON.stringify({ q: query, gl: 'us', hl: 'en', num: 10 })
   });
   if (!resp.ok) {
     const e = new Error(`HTTP ${resp.status}`);
@@ -1250,7 +1250,16 @@ async function callSerper(apiKey, query) {
     throw e;
   }
   const data = await resp.json();
-  return data.events || [];
+  // Log first response so we can verify the shape during testing
+  if (!callSerper._logged) {
+    callSerper._logged = true;
+    console.log('[HISS] First Serper response keys:', Object.keys(data));
+    console.log('[HISS] eventsResults count:', data.eventsResults?.length ?? 0);
+    if (data.eventsResults?.[0]) console.log('[HISS] Sample event:', JSON.stringify(data.eventsResults[0], null, 2));
+    else console.log('[HISS] No eventsResults — organic count:', data.organic?.length ?? 0);
+  }
+  // /search returns eventsResults; fall back to events key in case endpoint shape varies
+  return data.eventsResults || data.events || [];
 }
 
 // ═══════════════════════════════════════════
@@ -1309,11 +1318,13 @@ function normalizeEvent(evt, sourceQuery, searchState) {
 
   const { startDate, endDate } = parseDates(evt.date);
 
-  const addrParts = Array.isArray(evt.address) ? evt.address : [];
-  const venue     = addrParts[0] || '';
-  const addrLine  = addrParts.slice(1).join(' ') || addrParts[0] || '';
+  // address may be a flat string ("Venue, City, ST ZIP") or an array
+  const addrFull = Array.isArray(evt.address)
+    ? evt.address.join(', ')
+    : (evt.address || '');
+  const venue = Array.isArray(evt.address) ? (evt.address[0] || '') : '';
 
-  const zipMatch = (addrLine + ' ' + venue).match(/\b(\d{5})\b/);
+  const zipMatch = addrFull.match(/\b(\d{5})\b/);
   const zip      = zipMatch ? zipMatch[1] : '';
 
   let county = '';
@@ -1328,10 +1339,14 @@ function normalizeEvent(evt, sourceQuery, searchState) {
     state = zipCounty[zip].state;
   }
 
-  const city = addrLine
+  // City: strip trailing "ST ZIP" then remove venue prefix if present
+  const cityLine = addrFull
     .replace(/,?\s*[A-Z]{2}\s*\d{5}(-\d{4})?\s*$/, '')
     .replace(/,\s*$/, '')
     .trim();
+  const city = (venue && cityLine.startsWith(venue))
+    ? cityLine.slice(venue.length).replace(/^,\s*/, '').trim()
+    : cityLine;
 
   return {
     name, startDate, endDate, venue, city, state, county, zip,
@@ -1342,23 +1357,29 @@ function normalizeEvent(evt, sourceQuery, searchState) {
   };
 }
 
-function parseDates(dateObj) {
-  if (!dateObj) return { startDate: '', endDate: '' };
-  const raw = dateObj.startDate || dateObj.when || '';
-  if (!raw) return { startDate: '', endDate: '' };
+function parseDates(dateInput) {
+  if (!dateInput) return { startDate: '', endDate: '' };
 
-  const start = new Date(raw);
+  // date may be a plain string ("Apr 18 – 19" / "Sat, Apr 18, 2026")
+  // or an object ({ startDate: "Apr 18, 2026", when: "Apr 18 – 19" })
+  const rangeStr = typeof dateInput === 'string' ? dateInput : (dateInput.when || dateInput.startDate || '');
+  const rawStart = typeof dateInput === 'string' ? dateInput : (dateInput.startDate || dateInput.when || '');
+  if (!rawStart) return { startDate: '', endDate: '' };
+
+  // Strip the "– end" part before parsing the start date
+  const cleanStart = rawStart.split(/\s*[–\-]\s*/)[0].trim();
+  const start = new Date(cleanStart);
   if (isNaN(start)) return { startDate: '', endDate: '' };
   const startDate = start.toISOString().slice(0, 10);
 
-  const when = dateObj.when || '';
-  const m    = when.match(/[–\-]\s*(?:(\w+)\s+)?(\d+)(?:,\s*(\d{4}))?/);
+  // Parse end date from range notation: "Apr 18 – 19" or "Apr 18 – May 3, 2026"
+  const m = rangeStr.match(/[–\-]\s*(?:(\w+)\s+)?(\d+)(?:,\s*(\d{4}))?/);
   if (m) {
     const month = m[1] || start.toLocaleString('en-US', { month: 'short' });
     const day   = m[2];
     const year  = m[3] || start.getFullYear();
     const end   = new Date(`${month} ${day}, ${year}`);
-    if (!isNaN(end)) return { startDate, endDate: end.toISOString().slice(0, 10) };
+    if (!isNaN(end) && end >= start) return { startDate, endDate: end.toISOString().slice(0, 10) };
   }
   return { startDate, endDate: startDate };
 }
