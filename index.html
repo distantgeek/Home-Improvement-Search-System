@@ -366,7 +366,8 @@
   }
   .run-btn:hover { background: #ffb820; transform: translateY(-1px); box-shadow: 0 4px 20px var(--amber-glow); }
   .run-btn:active { transform: translateY(0); }
-  .run-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow: none; }
+  .run-btn.stop { background: var(--red); }
+  .run-btn.stop:hover { background: #f87171; box-shadow: 0 4px 20px rgba(239,68,68,.3); }
 
   /* ── MAIN CONTENT ── */
   main.results-area {
@@ -733,6 +734,7 @@
       <div class="section-label">STATE</div>
       <select class="filter-select" id="stateSelect">
         <option value="">— Select State —</option>
+        <option value="ALL">★ All Northeast States</option>
         <option value="MD">Maryland (MD)</option>
         <option value="VA">Virginia (VA)</option>
         <option value="PA">Pennsylvania (PA)</option>
@@ -832,6 +834,9 @@
       <div class="loading-bar-fill"></div>
     </div>
 
+    <!-- Error banner -->
+    <div id="errorBanner" style="display:none;align-items:center;gap:10px;padding:8px 20px;background:rgba(239,68,68,.12);border-bottom:1px solid rgba(239,68,68,.3);color:#ef4444;font-size:12px;font-family:var(--font-mono);flex-shrink:0;"></div>
+
     <!-- Toolbar -->
     <div class="results-toolbar">
       <div class="result-count" id="resultCount">Run a search to see results</div>
@@ -898,45 +903,35 @@ const COUNTIES = {
   VA: ['Accomack','Albemarle','Alexandria City','Alleghany','Amelia','Amherst','Appomattox','Arlington','Augusta','Bath','Bedford','Bland','Botetourt','Brunswick','Buchanan','Buckingham','Campbell','Caroline','Carroll','Charles City','Charlotte','Charlottesville City','Chesterfield','Clarke','Culpeper','Cumberland','Dickenson','Dinwiddie','Essex','Fairfax','Fairfax City','Falls Church City','Fauquier','Floyd','Fluvanna','Franklin','Franklin City','Frederick','Fredericksburg City','Giles','Gloucester','Goochland','Grayson','Greene','Greensville','Halifax','Hampton City','Hanover','Harrisonburg City','Henrico','Henry','Highland','Isle of Wight','James City','King and Queen','King George','King William','Lancaster','Lee','Loudoun','Louisa','Lunenburg','Lynchburg City','Madison','Manassas City','Manassas Park City','Mathews','Mecklenburg','Middlesex','Montgomery','Nelson','New Kent','Newport News City','Norfolk City','Northampton','Northumberland','Nottoway','Orange','Page','Patrick','Petersburg City','Pittsylvania','Poquoson City','Portsmouth City','Powhatan','Prince Edward','Prince George','Prince William','Pulaski','Radford City','Rappahannock','Richmond City','Richmond County','Roanoke City','Roanoke County','Rockbridge','Rockingham','Russell','Salem City','Scott','Shenandoah','Smyth','Southampton','Spotsylvania','Stafford','Staunton City','Suffolk City','Surry','Sussex','Tazewell','Virginia Beach City','Warren','Washington','Waynesboro City','Westmoreland','Williamsburg City','Winchester City','Wise','Wythe','York'],
   PA: ['Adams','Allegheny','Armstrong','Beaver','Bedford','Berks','Blair','Bradford','Bucks','Butler','Cambria','Cameron','Carbon','Centre','Chester','Clarion','Clearfield','Clinton','Columbia','Crawford','Cumberland','Dauphin','Delaware','Elk','Erie','Fayette','Forest','Franklin','Fulton','Greene','Huntingdon','Indiana','Jefferson','Juniata','Lackawanna','Lancaster','Lawrence','Lebanon','Lehigh','Luzerne','Lycoming','McKean','Mercer','Mifflin','Monroe','Montgomery','Montour','Northampton','Northumberland','Perry','Philadelphia','Pike','Potter','Schuylkill','Snyder','Somerset','Sullivan','Susquehanna','Tioga','Union','Venango','Warren','Washington','Wayne','Westmoreland','Wyoming','York'],
   NJ: ['Atlantic','Bergen','Burlington','Camden','Cape May','Cumberland','Essex','Gloucester','Hudson','Hunterdon','Mercer','Middlesex','Monmouth','Morris','Ocean','Passaic','Salem','Somerset','Sussex','Union','Warren'],
-  DE: ['Kent County','New Castle County','Sussex County'],
+  DE: ['Kent','New Castle','Sussex'],
   DC: ['District of Columbia']
 };
 
 const EVENT_TYPES = {
-  'Home Show': 'home-show',
+  'Home Show':     'home-show',
   'Home & Garden': 'garden',
-  'County Fair': 'county-fair',
-  'State Fair': 'state-fair',
-  'Art & Craft': 'art-craft'
+  'County Fair':   'county-fair',
+  'State Fair':    'state-fair',
+  'Art & Craft':   'art-craft'
 };
 
-// Mock data representing what the Serper API would return
-const MOCK_EVENTS = [
-  { name:'Frederick Spring Home Show', startDate:'2026-04-18', endDate:'2026-04-19', venue:'Frederick Fairgrounds', city:'Frederick', state:'MD', county:'Frederick', zip:'21701', type:'Home Show', url:'https://example.com', source:'home show Frederick County Maryland' },
-  { name:'Montgomery County Home & Garden Expo', startDate:'2026-04-25', endDate:'2026-04-26', venue:'Montgomery County Fairgrounds', city:'Gaithersburg', state:'MD', county:'Montgomery', zip:'20879', type:'Home & Garden', url:'https://example.com', source:'home and garden show Montgomery Maryland' },
-  { name:"Prince George's Spring Home Expo", startDate:'2026-05-02', endDate:'2026-05-03', venue:'Show Place Arena', city:'Upper Marlboro', state:'MD', county:"Prince George's", zip:'20772', type:'Home Show', url:'https://example.com', source:"home improvement expo Prince George's Maryland" },
-  { name:'Northern Virginia Home Improvement Show', startDate:'2026-05-09', endDate:'2026-05-10', venue:'Dulles Expo Center', city:'Chantilly', state:'VA', county:'Fairfax', zip:'20151', type:'Home Show', url:'https://example.com', source:'home show Fairfax County Virginia' },
-  { name:'Loudoun County Fair', startDate:'2026-08-04', endDate:'2026-08-09', venue:'Loudoun County Fairgrounds', city:'Leesburg', state:'VA', county:'Loudoun', zip:'20175', type:'County Fair', url:'https://example.com', source:'county fair Loudoun Virginia' },
-  { name:'Maryland State Fair', startDate:'2026-08-27', endDate:'2026-09-07', venue:'State Fairgrounds', city:'Timonium', state:'MD', county:'Baltimore County', zip:'21093', type:'State Fair', url:'https://example.com', source:'state fair Maryland' },
-  { name:'Prince William Home & Remodeling Expo', startDate:'2026-05-16', endDate:'2026-05-17', venue:'Hylton Performing Arts Ctr', city:'Manassas', state:'VA', county:'Prince William', zip:'20110', type:'Home Show', url:'https://example.com', source:'home improvement expo Prince William Virginia' },
-  { name:'Bucks County Home & Garden Show', startDate:'2026-03-28', endDate:'2026-03-29', venue:'Bucks County Expo Center', city:'Oaks', state:'PA', county:'Montgomery', zip:'19456', type:'Home & Garden', url:'https://example.com', source:'home and garden show Bucks County Pennsylvania' },
-  { name:'Lancaster County Home Show', startDate:'2026-04-11', endDate:'2026-04-13', venue:'Lancaster County Convention Center', city:'Lancaster', state:'PA', county:'Lancaster', zip:'17602', type:'Home Show', url:'https://example.com', source:'home show Lancaster Pennsylvania' },
-  { name:'Bergen County Home Improvement Expo', startDate:'2026-05-23', endDate:'2026-05-24', venue:'Meadowlands Expo Center', city:'Secaucus', state:'NJ', county:'Hudson', zip:'07094', type:'Home Show', url:'https://example.com', source:'home improvement expo Bergen County New Jersey' },
-  { name:'DC Metro Spring Home Show', startDate:'2026-04-04', endDate:'2026-04-05', venue:'Walter E. Washington Conv. Ctr', city:'Washington', state:'DC', county:'District of Columbia', zip:'20001', type:'Home Show', url:'https://example.com', source:'home show Washington DC' },
-  { name:'Howard County Fair', startDate:'2026-07-28', endDate:'2026-08-02', venue:'Howard County Fairgrounds', city:'West Friendship', state:'MD', county:'Howard', zip:'21794', type:'County Fair', url:'https://example.com', source:'county fair Howard County Maryland' },
-  { name:'Stafford Home & Garden Expo', startDate:'2026-06-06', endDate:'2026-06-07', venue:'Stafford Expo Center', city:'Stafford', state:'VA', county:'Stafford', zip:'22554', type:'Home & Garden', url:'https://example.com', source:'home and garden show Stafford Virginia' },
-  { name:'Philadelphia Home Show', startDate:'2026-02-07', endDate:'2026-02-09', venue:'Pennsylvania Convention Center', city:'Philadelphia', state:'PA', county:'Philadelphia', zip:'19103', type:'Home Show', url:'https://example.com', source:'home show Philadelphia Pennsylvania' },
-  { name:'Spotsylvania Home Improvement Expo', startDate:'2026-05-30', endDate:'2026-05-31', venue:'Spotsylvania Towne Centre', city:'Fredericksburg', state:'VA', county:'Spotsylvania', zip:'22407', type:'Home Show', url:'https://example.com', source:'home improvement expo Spotsylvania Virginia' },
-];
+const STATE_ORDER = ['MD','VA','PA','NJ','DE','DC'];
+const STATE_NAMES = {
+  MD: 'Maryland', VA: 'Virginia', PA: 'Pennsylvania',
+  DC: 'Washington DC', NJ: 'New Jersey', DE: 'Delaware'
+};
 
 // ═══════════════════════════════════════════
 //  STATE
 // ═══════════════════════════════════════════
 let currentResults = [];
 let coverageFilter = 'all';
-let servedCounties = {};  // { "MD:Montgomery": true, ... }
-let sortCol = 'date';
-let sortDir = 1;
+let servedSet      = new Set();
+let sortCol        = 'date';
+let sortDir        = 1;
+let zipCounty      = null;
+let searchRunning  = false;
+let stopRequested  = false;
 
 // ═══════════════════════════════════════════
 //  INIT
@@ -945,17 +940,31 @@ document.addEventListener('DOMContentLoaded', () => {
   loadFromStorage();
   setDefaultDates();
   bindEvents();
+  loadZipCounty();
 });
 
 function loadFromStorage() {
-  const key = localStorage.getItem('hiss_apiKey');
+  const key = localStorage.getItem('hiss.serperApiKey');
   if (key) document.getElementById('apiKeyInput').value = key;
-  const cov = localStorage.getItem('hiss_coverage');
-  if (cov) servedCounties = JSON.parse(cov);
+  const raw = localStorage.getItem('hiss.servedCounties');
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      const arr = Array.isArray(parsed) ? parsed : (parsed.servedCounties || []);
+      servedSet = new Set(arr);
+    } catch (_) { servedSet = new Set(); }
+  }
+}
+
+async function loadZipCounty() {
+  try {
+    const r = await fetch('data/zip-county.json');
+    if (r.ok) zipCounty = await r.json();
+  } catch (_) {}
 }
 
 function setDefaultDates() {
-  const today = new Date();
+  const today     = new Date();
   const sixMonths = new Date(today);
   sixMonths.setMonth(today.getMonth() + 6);
   document.getElementById('dateFrom').value = today.toISOString().split('T')[0];
@@ -964,7 +973,7 @@ function setDefaultDates() {
 
 function bindEvents() {
   document.getElementById('apiKeyInput').addEventListener('change', e => {
-    localStorage.setItem('hiss_apiKey', e.target.value);
+    localStorage.setItem('hiss.serperApiKey', e.target.value.trim());
   });
 
   document.getElementById('stateSelect').addEventListener('change', e => {
@@ -992,10 +1001,12 @@ function bindEvents() {
     });
   });
 
-  document.getElementById('runSearchBtn').addEventListener('click', runSearch);
+  document.getElementById('runSearchBtn').addEventListener('click', () => {
+    if (searchRunning) stopRequested = true;
+    else runSearch();
+  });
   document.getElementById('exportBtn').addEventListener('click', exportCSV);
 
-  // Coverage modal
   document.getElementById('openCoverageModal').addEventListener('click', openCovModal);
   document.getElementById('closeCoverageModal').addEventListener('click', closeCovModal);
   document.getElementById('saveCoverageBtn').addEventListener('click', saveCoverage);
@@ -1006,7 +1017,6 @@ function bindEvents() {
     if (e.target === document.getElementById('coverageModal')) closeCovModal();
   });
 
-  // Table sort
   document.querySelectorAll('table.results-tbl th[data-col]').forEach(th => {
     th.addEventListener('click', () => {
       const col = th.dataset.col;
@@ -1020,21 +1030,37 @@ function bindEvents() {
 }
 
 // ═══════════════════════════════════════════
-//  COUNTIES
+//  COUNTIES SIDEBAR
 // ═══════════════════════════════════════════
 function populateCounties(state) {
-  const list = document.getElementById('countyList');
-  if (!state || !COUNTIES[state]) {
+  const list    = document.getElementById('countyList');
+  const allBtn  = document.getElementById('selectAllBtn');
+  const noneBtn = document.getElementById('clearAllBtn');
+
+  if (!state) {
     list.innerHTML = '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);padding:8px 6px;">Select a state first</div>';
     return;
   }
+  if (state === 'ALL') {
+    const total = STATE_ORDER.reduce((n, s) => n + COUNTIES[s].length, 0);
+    list.innerHTML = `<div style="font-family:var(--font-mono);font-size:11px;color:var(--teal);padding:8px 6px;line-height:1.6;">
+      All ${total} counties across all 6 states selected.<br>
+      <span style="color:var(--text-dim);">Switch to a single state to pick specific counties.</span>
+    </div>`;
+    allBtn.style.visibility  = 'hidden';
+    noneBtn.style.visibility = 'hidden';
+    return;
+  }
+  allBtn.style.visibility  = 'visible';
+  noneBtn.style.visibility = 'visible';
   list.innerHTML = '';
   COUNTIES[state].forEach(county => {
+    const id   = 'c_' + county.replace(/\W+/g, '_');
     const item = document.createElement('div');
-    item.className = 'county-item';
+    item.className      = 'county-item';
     item.dataset.county = county.toLowerCase();
-    item.innerHTML = `<input type="checkbox" id="c_${county.replace(/\s+/g,'_')}" value="${county}" checked>
-                      <label for="c_${county.replace(/\s+/g,'_')}">${county}</label>`;
+    item.innerHTML = `<input type="checkbox" id="${id}" value="${county}" checked>
+                      <label for="${id}">${county}</label>`;
     list.appendChild(item);
   });
 }
@@ -1051,133 +1077,330 @@ function getSelectedCounties() {
     .map(c => c.value);
 }
 
-// ═══════════════════════════════════════════
-//  SEARCH
-// ═══════════════════════════════════════════
-async function runSearch() {
-  const state = document.getElementById('stateSelect').value;
-  if (!state) { alert('Please select a state.'); return; }
-
-  const counties = getSelectedCounties();
-  if (!counties.length) { alert('Please select at least one county.'); return; }
-
+function getSelectedTypes() {
   const types = [];
   if (document.getElementById('typeHomeShow').checked)   types.push('Home Show');
   if (document.getElementById('typeGarden').checked)     types.push('Home & Garden');
   if (document.getElementById('typeCountyFair').checked) types.push('County Fair');
   if (document.getElementById('typeStateFair').checked)  types.push('State Fair');
   if (document.getElementById('typeArt').checked)        types.push('Art & Craft');
-
-  if (!types.length) { alert('Select at least one event type.'); return; }
-
-  // Build query list for display
-  const queries = buildQueries(counties, state, types);
-
-  setStatus('running', 'SEARCHING...');
-  document.getElementById('loadingBar').style.display = 'block';
-  document.getElementById('runSearchBtn').disabled = true;
-  document.getElementById('resultsTable').style.display = 'none';
-  document.getElementById('tablePlaceholder').style.display = 'flex';
-
-  // Show query tags
-  const tagArea = document.getElementById('queryTags');
-  tagArea.innerHTML = '';
-  queries.slice(0, 8).forEach(q => {
-    const tag = document.createElement('div');
-    tag.className = 'query-tag';
-    tag.textContent = q;
-    tag.id = 'qtag_' + q.replace(/\W+/g,'_');
-    tagArea.appendChild(tag);
-  });
-  if (queries.length > 8) {
-    const more = document.createElement('div');
-    more.className = 'query-tag';
-    more.textContent = `+${queries.length - 8} more`;
-    tagArea.appendChild(more);
-  }
-
-  document.getElementById('resultCount').textContent = 'Searching…';
-
-  // Simulate API calls with progressive tag updates
-  await simulateSearch(queries);
-
-  // Filter mock data to match selection
-  const dateFrom = document.getElementById('dateFrom').value;
-  const dateTo   = document.getElementById('dateTo').value;
-
-  let results = MOCK_EVENTS.filter(e => {
-    const stateMatch  = e.state === state;
-    const countyMatch = counties.includes(e.county);
-    const typeMatch   = types.includes(e.type);
-    const dateMatch   = (!dateFrom || e.startDate >= dateFrom) && (!dateTo || e.startDate <= dateTo);
-    return stateMatch && countyMatch && typeMatch && dateMatch;
-  });
-
-  // Annotate coverage
-  results = results.map(e => ({
-    ...e,
-    coverage: getCoverage(e.state, e.county)
-  }));
-
-  currentResults = results;
-
-  document.getElementById('loadingBar').style.display = 'none';
-  document.getElementById('runSearchBtn').disabled = false;
-  setStatus('done', `${results.length} RESULTS`);
-
-  const visible = applyFilters(results);
-  renderResults(visible);
+  return types;
 }
 
-function buildQueries(counties, state, types) {
-  const stateNames = { MD:'Maryland', VA:'Virginia', PA:'Pennsylvania', DC:'Washington DC', NJ:'New Jersey', DE:'Delaware' };
-  const stateName = stateNames[state];
-  const queries = [];
+// ═══════════════════════════════════════════
+//  SEARCH
+// ═══════════════════════════════════════════
+async function runSearch() {
+  const apiKey = document.getElementById('apiKeyInput').value.trim();
+  if (!apiKey) { showError('No API key — paste your Serper.dev key in the field above.'); return; }
 
-  const queryTemplates = {
-    'Home Show':     c => `home show ${c} ${stateName}`,
-    'Home & Garden': c => `home and garden show ${c} ${stateName}`,
-    'County Fair':   c => `county fair ${c} ${stateName}`,
-    'State Fair':    () => `state fair ${stateName}`,
-    'Art & Craft':   c => `art craft show ${c} ${stateName}`,
+  const state   = document.getElementById('stateSelect').value;
+  if (!state) { showError('Please select a state.'); return; }
+
+  const counties = getSelectedCounties();
+  if (state !== 'ALL' && !counties.length) { showError('Please select at least one county.'); return; }
+
+  const types = getSelectedTypes();
+  if (!types.length) { showError('Select at least one event type.'); return; }
+
+  if (!zipCounty) {
+    try {
+      const r = await fetch('data/zip-county.json');
+      if (!r.ok) throw new Error();
+      zipCounty = await r.json();
+    } catch (_) {
+      showError('Cannot load data/zip-county.json — serve this folder with <code>python3 -m http.server 8000</code> and open <a href="http://localhost:8000" target="_blank" style="color:inherit">http://localhost:8000</a>');
+      return;
+    }
+  }
+
+  clearError();
+
+  const queries = buildAllQueries(state, counties, types);
+  if (!queries.length) { showError('No queries generated — check your selections.'); return; }
+
+  if (queries.length > 50) {
+    const pct = Math.round(queries.length / 2500 * 100);
+    const ok  = confirm(`This search will run ${queries.length} queries, using ~${pct}% of your 2,500 monthly Serper credits.\n\nContinue?`);
+    if (!ok) return;
+  }
+
+  searchRunning = true;
+  stopRequested = false;
+
+  const runBtn = document.getElementById('runSearchBtn');
+  runBtn.innerHTML  = '■ &nbsp;STOP';
+  runBtn.classList.add('stop');
+  document.getElementById('loadingBar').style.display       = 'block';
+  document.getElementById('resultsTable').style.display     = 'none';
+  document.getElementById('tablePlaceholder').style.display = 'flex';
+  document.getElementById('tablePlaceholder').innerHTML     =
+    '<div class="placeholder-icon">🔍</div><div class="placeholder-text">Starting search…</div>';
+  document.getElementById('exportBtn').disabled = true;
+
+  const tagArea  = document.getElementById('queryTags');
+  const dateFrom = document.getElementById('dateFrom').value;
+  const dateTo   = document.getElementById('dateTo').value;
+  const dedupe   = new Map();
+  const results  = [];
+
+  for (let i = 0; i < queries.length; i++) {
+    if (stopRequested) break;
+    const q = queries[i];
+
+    setStatus('running', `${i + 1} / ${queries.length}`);
+    document.getElementById('resultCount').textContent =
+      `Running query ${i + 1} of ${queries.length}: ${q}`;
+
+    tagArea.innerHTML = '';
+    const tag = document.createElement('div');
+    tag.className   = 'query-tag ran';
+    tag.textContent = q;
+    tagArea.appendChild(tag);
+    if (queries.length - i - 1 > 0) {
+      const rem = document.createElement('div');
+      rem.className   = 'query-tag';
+      rem.textContent = `${queries.length - i - 1} remaining`;
+      tagArea.appendChild(rem);
+    }
+
+    let events  = [];
+    let retried = false;
+
+    while (true) {
+      try {
+        events = await callSerper(apiKey, q);
+        break;
+      } catch (err) {
+        if (err.status === 401) {
+          showError('Invalid API key — check your Serper.dev key and try again.');
+          stopRequested = true;
+          break;
+        }
+        if (err.status === 429 && !retried) {
+          retried = true;
+          setStatus('running', 'Rate limited…');
+          document.getElementById('resultCount').textContent =
+            `Rate limit hit — waiting 30 seconds before retrying query ${i + 1}…`;
+          await delay(30000);
+          if (stopRequested) break;
+          continue;
+        }
+        if (!navigator.onLine) {
+          showError('Network offline — check your connection, then run the search again.');
+          stopRequested = true;
+        } else {
+          console.warn('Query failed (skipping):', q, err.message || err.status);
+        }
+        break;
+      }
+    }
+
+    if (stopRequested) break;
+
+    for (const evt of events) {
+      const row = normalizeEvent(evt, q, state === 'ALL' ? null : state);
+      if (!row) continue;
+      if (dateFrom && row.startDate && row.startDate < dateFrom) continue;
+      if (dateTo   && row.startDate && row.startDate > dateTo)   continue;
+      const dk = dedupeKey(row);
+      if (dedupe.has(dk)) {
+        const ex = dedupe.get(dk);
+        if (!ex.sourceQueries.includes(q)) ex.sourceQueries.push(q);
+        continue;
+      }
+      row.sourceQueries = [q];
+      row.coverage = getCoverage(row.state, row.county);
+      dedupe.set(dk, row);
+      results.push(row);
+    }
+
+    if (i < queries.length - 1 && !stopRequested) await delay(400);
+  }
+
+  currentResults = results;
+  searchRunning  = false;
+  stopRequested  = false;
+  runBtn.innerHTML = '▶ &nbsp;RUN SEARCH';
+  runBtn.classList.remove('stop');
+  document.getElementById('loadingBar').style.display = 'none';
+  tagArea.innerHTML = '';
+
+  if (!results.length) {
+    setStatus('done', '0 RESULTS');
+    document.getElementById('resultCount').textContent = 'No events found for the selected filters';
+    document.getElementById('tablePlaceholder').style.display = 'flex';
+    document.getElementById('tablePlaceholder').innerHTML =
+      '<div class="placeholder-icon">🔍</div><div class="placeholder-text">No events found — try different counties or a broader date range</div>';
+  } else {
+    setStatus('done', `${results.length} RESULTS`);
+    renderResults(applyFilters(results));
+  }
+}
+
+async function callSerper(apiKey, query) {
+  const resp = await fetch('https://google.serper.dev/events', {
+    method:  'POST',
+    headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ q: query, gl: 'us', hl: 'en' })
+  });
+  if (!resp.ok) {
+    const e = new Error(`HTTP ${resp.status}`);
+    e.status = resp.status;
+    throw e;
+  }
+  const data = await resp.json();
+  return data.events || [];
+}
+
+// ═══════════════════════════════════════════
+//  QUERY BUILDING
+// ═══════════════════════════════════════════
+function buildAllQueries(state, selectedCounties, types) {
+  if (state === 'ALL') {
+    const seen    = new Set();
+    const queries = [];
+    STATE_ORDER.forEach(s => {
+      buildQueriesForState(COUNTIES[s], s, types).forEach(q => {
+        if (!seen.has(q)) { seen.add(q); queries.push(q); }
+      });
+    });
+    return queries;
+  }
+  return buildQueriesForState(selectedCounties, state, types);
+}
+
+function buildQueriesForState(counties, state, types) {
+  const stateName = STATE_NAMES[state];
+  const templates = {
+    'Home Show':     c => [`home show ${countyForQuery(c)} ${stateName}`, `home improvement expo ${countyForQuery(c)} ${stateName}`],
+    'Home & Garden': c => [`home and garden show ${countyForQuery(c)} ${stateName}`],
+    'County Fair':   c => [`county fair ${countyForQuery(c)} ${stateName}`],
+    'State Fair':    () => [`state fair ${stateName}`],
+    'Art & Craft':   c => [`art craft show ${countyForQuery(c)} ${stateName}`],
   };
-
-  const seen = new Set();
+  const seen    = new Set();
+  const queries = [];
   types.forEach(type => {
-    const tmpl = queryTemplates[type];
+    const tmpl = templates[type];
     if (!tmpl) return;
     if (type === 'State Fair') {
-      const q = tmpl();
-      if (!seen.has(q)) { seen.add(q); queries.push(q); }
+      tmpl().forEach(q => { if (!seen.has(q)) { seen.add(q); queries.push(q); } });
     } else {
-      counties.slice(0, 6).forEach(county => { // cap for display
-        const q = tmpl(county);
-        if (!seen.has(q)) { seen.add(q); queries.push(q); }
+      counties.forEach(county => {
+        tmpl(county).forEach(q => { if (!seen.has(q)) { seen.add(q); queries.push(q); } });
       });
     }
   });
   return queries;
 }
 
-async function simulateSearch(queries) {
-  for (let i = 0; i < Math.min(queries.length, 8); i++) {
-    await delay(220);
-    const tagId = 'qtag_' + queries[i].replace(/\W+/g,'_');
-    const tag = document.getElementById(tagId);
-    if (tag) tag.classList.add('ran');
+function countyForQuery(county) {
+  if (/\b(City|County|District|Parish|Borough)\b/i.test(county)) return county;
+  return county + ' County';
+}
+
+// ═══════════════════════════════════════════
+//  NORMALIZE & ENRICH
+// ═══════════════════════════════════════════
+function normalizeEvent(evt, sourceQuery, searchState) {
+  const name = (evt.title || '').trim();
+  if (!name) return null;
+
+  const { startDate, endDate } = parseDates(evt.date);
+
+  const addrParts = Array.isArray(evt.address) ? evt.address : [];
+  const venue     = addrParts[0] || '';
+  const addrLine  = addrParts.slice(1).join(' ') || addrParts[0] || '';
+
+  const zipMatch = (addrLine + ' ' + venue).match(/\b(\d{5})\b/);
+  const zip      = zipMatch ? zipMatch[1] : '';
+
+  let county = '';
+  let state  = searchState || '';
+  if (zip && zipCounty && zipCounty[zip]) {
+    // Census NAMELSAD includes "County" suffix — strip to match COUNTIES array
+    const raw = zipCounty[zip].county;
+    county = raw
+      .replace(/ County$/i, '')
+      .replace(/ city$/i, ' City')
+      .trim();
+    state = zipCounty[zip].state;
   }
-  await delay(300);
+
+  const city = addrLine
+    .replace(/,?\s*[A-Z]{2}\s*\d{5}(-\d{4})?\s*$/, '')
+    .replace(/,\s*$/, '')
+    .trim();
+
+  return {
+    name, startDate, endDate, venue, city, state, county, zip,
+    type:          inferEventType(sourceQuery, name),
+    url:           evt.link || '',
+    source:        sourceQuery,
+    sourceQueries: []
+  };
+}
+
+function parseDates(dateObj) {
+  if (!dateObj) return { startDate: '', endDate: '' };
+  const raw = dateObj.startDate || dateObj.when || '';
+  if (!raw) return { startDate: '', endDate: '' };
+
+  const start = new Date(raw);
+  if (isNaN(start)) return { startDate: '', endDate: '' };
+  const startDate = start.toISOString().slice(0, 10);
+
+  const when = dateObj.when || '';
+  const m    = when.match(/[–\-]\s*(?:(\w+)\s+)?(\d+)(?:,\s*(\d{4}))?/);
+  if (m) {
+    const month = m[1] || start.toLocaleString('en-US', { month: 'short' });
+    const day   = m[2];
+    const year  = m[3] || start.getFullYear();
+    const end   = new Date(`${month} ${day}, ${year}`);
+    if (!isNaN(end)) return { startDate, endDate: end.toISOString().slice(0, 10) };
+  }
+  return { startDate, endDate: startDate };
+}
+
+function inferEventType(query, title) {
+  const s = (query + ' ' + title).toLowerCase();
+  if (s.includes('state fair'))  return 'State Fair';
+  if (s.includes('county fair')) return 'County Fair';
+  if (s.includes('garden'))      return 'Home & Garden';
+  if (s.includes('art') || s.includes('craft')) return 'Art & Craft';
+  return 'Home Show';
+}
+
+function dedupeKey(row) {
+  const name = (row.name || '').toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+  return `${name}|${row.startDate || ''}|${row.zip || ''}`;
 }
 
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ═══════════════════════════════════════════
+//  ERROR BANNER
+// ═══════════════════════════════════════════
+function showError(html) {
+  const b = document.getElementById('errorBanner');
+  b.style.display = 'flex';
+  b.innerHTML = `<span style="flex:1">${html}</span>
+    <button onclick="clearError()" style="background:none;border:none;color:inherit;cursor:pointer;font-size:14px;padding:0 4px;">✕</button>`;
+}
+
+function clearError() {
+  const b = document.getElementById('errorBanner');
+  b.style.display = 'none';
+  b.innerHTML = '';
+}
+
+// ═══════════════════════════════════════════
 //  COVERAGE
 // ═══════════════════════════════════════════
 function getCoverage(state, county) {
-  const key = `${state}:${county}`;
-  if (Object.keys(servedCounties).length === 0) return 'unknown';
-  return servedCounties[key] ? 'served' : 'not-served';
+  if (!servedSet.size) return 'unknown';
+  return servedSet.has(`${state}:${county}`) ? 'served' : 'not-served';
 }
 
 function applyFilters(results) {
@@ -1191,7 +1414,7 @@ function applyFilters(results) {
 
 function sortResults(results) {
   return [...results].sort((a, b) => {
-    let va = a[sortCol] || '', vb = b[sortCol] || '';
+    const va = a[sortCol] || '', vb = b[sortCol] || '';
     return va < vb ? -sortDir : va > vb ? sortDir : 0;
   });
 }
@@ -1200,44 +1423,42 @@ function sortResults(results) {
 //  RENDER
 // ═══════════════════════════════════════════
 function renderResults(results) {
-  const tbody = document.getElementById('resultsBody');
-  const table = document.getElementById('resultsTable');
+  const tbody       = document.getElementById('resultsBody');
+  const table       = document.getElementById('resultsTable');
   const placeholder = document.getElementById('tablePlaceholder');
 
-  document.getElementById('resultCount').innerHTML =
-    results.length
-      ? `<strong>${results.length}</strong> events found`
-      : 'No events match current filters';
-
+  document.getElementById('resultCount').innerHTML = results.length
+    ? `<strong>${results.length}</strong> events found`
+    : 'No events match current filters';
   document.getElementById('exportBtn').disabled = results.length === 0;
 
   if (!results.length) {
     table.style.display = 'none';
     placeholder.style.display = 'flex';
-    placeholder.innerHTML = '<div class="placeholder-icon">🔍</div><div class="placeholder-text">No events match the selected filters</div>';
+    placeholder.innerHTML =
+      '<div class="placeholder-icon">🔍</div><div class="placeholder-text">No events match the selected filters</div>';
     return;
   }
 
   placeholder.style.display = 'none';
-  table.style.display = 'table';
+  table.style.display       = 'table';
 
   tbody.innerHTML = results.map(e => {
     const typeClass = EVENT_TYPES[e.type] || 'home-show';
-    const covLabel = { served: '✓ Served', 'not-served': '✗ Not Served', unknown: '? Unconfigured' }[e.coverage];
-    const dateStr = e.startDate === e.endDate || !e.endDate
+    const covLabel  = { served: '✓ Served', 'not-served': '✗ Not Served', unknown: '? Unconfigured' }[e.coverage];
+    const dateStr   = (!e.endDate || e.startDate === e.endDate)
       ? fmtDate(e.startDate)
       : `${fmtDate(e.startDate)} – ${fmtDate(e.endDate)}`;
-
     return `<tr>
-      <td><a class="event-link" href="${e.url}" target="_blank">${e.name}</a></td>
+      <td><a class="event-link" href="${escHtml(e.url)}" target="_blank">${escHtml(e.name)}</a></td>
       <td class="mono">${dateStr}</td>
-      <td>${e.venue}</td>
-      <td>${e.city}</td>
-      <td class="mono">${e.county}</td>
-      <td class="mono">${e.zip}</td>
-      <td><span class="type-badge ${typeClass}">${e.type.toUpperCase()}</span></td>
+      <td>${escHtml(e.venue)}</td>
+      <td>${escHtml(e.city)}</td>
+      <td class="mono">${escHtml(e.county)}</td>
+      <td class="mono">${escHtml(e.zip)}</td>
+      <td><span class="type-badge ${typeClass}">${escHtml(e.type.toUpperCase())}</span></td>
       <td><span class="coverage-dot ${e.coverage}">${covLabel}</span></td>
-      <td><a class="event-link" href="${e.url}" target="_blank" title="View event">↗</a></td>
+      <td><a class="event-link" href="${escHtml(e.url)}" target="_blank" title="View event">↗</a></td>
     </tr>`;
   }).join('');
 }
@@ -1245,7 +1466,12 @@ function renderResults(results) {
 function fmtDate(dateStr) {
   if (!dateStr) return '—';
   const d = new Date(dateStr + 'T00:00:00');
-  return d.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function escHtml(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // ═══════════════════════════════════════════
@@ -1254,16 +1480,20 @@ function fmtDate(dateStr) {
 function exportCSV() {
   const visible = applyFilters(currentResults);
   const headers = ['Event Name','Start Date','End Date','Venue','City','State','County','ZIP','Type','Coverage','Source URL'];
-  const rows = visible.map(e => [
-    `"${e.name}"`, e.startDate, e.endDate || e.startDate,
-    `"${e.venue}"`, e.city, e.state, `"${e.county}"`, e.zip,
-    e.type, e.coverage, e.url
+  const rows    = visible.map(e => [
+    `"${(e.name   || '').replace(/"/g, '""')}"`,
+    e.startDate,
+    e.endDate || e.startDate,
+    `"${(e.venue  || '').replace(/"/g, '""')}"`,
+    e.city, e.state,
+    `"${(e.county || '').replace(/"/g, '""')}"`,
+    e.zip, e.type, e.coverage, e.url
   ]);
-  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-  const blob = new Blob([csv], { type:'text/csv' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `hiss-results-${new Date().toISOString().slice(0,10)}.csv`;
+  const csv  = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(blob);
+  a.download = `hiss-results-${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
 }
 
@@ -1274,17 +1504,14 @@ function openCovModal() {
   const body = document.getElementById('coverageModalBody');
   body.innerHTML = '';
 
-  const stateOrder = ['MD','VA','PA','NJ','DE','DC'];
-  const stateNames = { MD:'Maryland', VA:'Virginia', PA:'Pennsylvania', NJ:'New Jersey', DE:'Delaware', DC:'Washington DC' };
-
-  stateOrder.forEach(state => {
+  STATE_ORDER.forEach(state => {
     const counties = COUNTIES[state];
-    const group = document.createElement('div');
+    const group    = document.createElement('div');
     group.className = 'modal-state-group';
 
     const header = document.createElement('div');
     header.className = 'modal-state-label';
-    header.innerHTML = `${stateNames[state]}
+    header.innerHTML = `${STATE_NAMES[state]}
       <div class="state-actions">
         <button class="label-btn" onclick="modalSelectAll('${state}')">All</button>
         <button class="label-btn" onclick="modalClearAll('${state}')">None</button>
@@ -1293,13 +1520,13 @@ function openCovModal() {
 
     const grid = document.createElement('div');
     grid.className = 'modal-county-list';
-
     counties.forEach(county => {
-      const key = `${state}:${county}`;
-      const item = document.createElement('div');
+      const key    = `${state}:${county}`;
+      const safeId = 'm_' + key.replace(/\W+/g, '_');
+      const item   = document.createElement('div');
       item.className = 'modal-county-item';
-      item.innerHTML = `<input type="checkbox" id="m_${key.replace(/\W+/g,'_')}" data-key="${key}" ${servedCounties[key] ? 'checked' : ''}>
-                        <label for="m_${key.replace(/\W+/g,'_')}">${county}</label>`;
+      item.innerHTML = `<input type="checkbox" id="${safeId}" data-key="${key}" ${servedSet.has(key) ? 'checked' : ''}>
+                        <label for="${safeId}">${county}</label>`;
       grid.appendChild(item);
     });
 
@@ -1315,11 +1542,12 @@ function closeCovModal() {
 }
 
 function saveCoverage() {
-  servedCounties = {};
+  const arr = [];
   document.querySelectorAll('#coverageModalBody input[type="checkbox"]:checked').forEach(cb => {
-    servedCounties[cb.dataset.key] = true;
+    arr.push(cb.dataset.key);
   });
-  localStorage.setItem('hiss_coverage', JSON.stringify(servedCounties));
+  servedSet = new Set(arr);
+  localStorage.setItem('hiss.servedCounties', JSON.stringify(arr));
   closeCovModal();
   if (currentResults.length) {
     currentResults = currentResults.map(e => ({ ...e, coverage: getCoverage(e.state, e.county) }));
@@ -1338,9 +1566,9 @@ function modalClearAll(state) {
 //  UTILS
 // ═══════════════════════════════════════════
 function setStatus(type, text) {
-  const pill = document.getElementById('statusPill');
+  const pill    = document.getElementById('statusPill');
   pill.textContent = text;
-  pill.className = 'status-pill ' + type;
+  pill.className   = 'status-pill ' + (type || '');
 }
 </script>
 </body>
