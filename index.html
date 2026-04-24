@@ -747,7 +747,7 @@
     <!-- Counties -->
     <div class="filter-section">
       <div class="section-label">
-        COUNTIES
+        FILTER BY COUNTY
         <div class="label-actions">
           <button class="label-btn" id="selectAllBtn">All</button>
           <button class="label-btn" id="clearAllBtn">None</button>
@@ -1218,6 +1218,14 @@ async function runSearch() {
     if (i < queries.length - 1 && !stopRequested) await delay(400);
   }
 
+  // Post-search county filter: if the user selected a subset of counties,
+  // keep only events whose enriched county matches. Events with no resolved
+  // county are kept so we don't silently discard unenriched results.
+  if (state !== 'ALL' && counties.length && counties.length < COUNTIES[state].length) {
+    const countySet = new Set(counties);
+    results = results.filter(r => !r.county || countySet.has(r.county));
+  }
+
   currentResults = results;
   searchRunning  = false;
   stopRequested  = false;
@@ -1281,25 +1289,27 @@ function buildAllQueries(state, selectedCounties, types) {
 
 function buildQueriesForState(counties, state, types) {
   const stateName = STATE_NAMES[state];
+  const year = new Date().getFullYear();
+  // County-level queries don't trigger Google's Events carousel.
+  // State-level queries do — county filtering happens post-search via ZIP enrichment.
   const templates = {
-    'Home Show':     c => [`home show ${countyForQuery(c)} ${stateName}`, `home improvement expo ${countyForQuery(c)} ${stateName}`],
-    'Home & Garden': c => [`home and garden show ${countyForQuery(c)} ${stateName}`],
-    'County Fair':   c => [`county fair ${countyForQuery(c)} ${stateName}`],
+    'Home Show':     () => [
+      `home show ${stateName} ${year}`,
+      `home improvement expo ${stateName} ${year}`,
+    ],
+    'Home & Garden': () => [`home and garden show ${stateName} ${year}`],
+    'County Fair':   () => [`county fair ${stateName} ${year}`],
     'State Fair':    () => [`state fair ${stateName}`],
-    'Art & Craft':   c => [`art craft show ${countyForQuery(c)} ${stateName}`],
+    'Art & Craft':   () => [
+      `art fair ${stateName} ${year}`,
+      `craft show ${stateName} ${year}`,
+    ],
   };
   const seen    = new Set();
   const queries = [];
   types.forEach(type => {
     const tmpl = templates[type];
-    if (!tmpl) return;
-    if (type === 'State Fair') {
-      tmpl().forEach(q => { if (!seen.has(q)) { seen.add(q); queries.push(q); } });
-    } else {
-      counties.forEach(county => {
-        tmpl(county).forEach(q => { if (!seen.has(q)) { seen.add(q); queries.push(q); } });
-      });
-    }
+    if (tmpl) tmpl().forEach(q => { if (!seen.has(q)) { seen.add(q); queries.push(q); } });
   });
   return queries;
 }
