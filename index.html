@@ -1264,6 +1264,18 @@ async function runSearch() {
       if (dedupe.has(dk)) {
         const ex = dedupe.get(dk);
         if (!ex.sourceQueries.includes(q)) ex.sourceQueries.push(q);
+        // Prefer direct Google results over aggregator pages.
+        // Lower priority number = better source.
+        const pri = { google: 0, eventbrite: 1, facebook: 2 };
+        const newP = pri[row.sourceType]  ?? 99;
+        const exP  = pri[ex.sourceType]   ?? 99;
+        if (newP < exP) {
+          // Upgrade: keep accumulated queries/coverage, swap in better data
+          row.sourceQueries = ex.sourceQueries;
+          row.coverage      = ex.coverage;
+          dedupe.set(dk, row);
+          results[results.indexOf(ex)] = row;
+        }
         continue;
       }
       row.sourceQueries = [q];
@@ -1320,7 +1332,7 @@ async function callSerper(apiKey, query) {
   const resp = await fetch('https://google.serper.dev/search', {
     method:  'POST',
     headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ q: query, gl: 'us', hl: 'en', num: 20 })
+    body:    JSON.stringify({ q: query, gl: 'us', hl: 'en', num: 30 })
   });
   if (!resp.ok) {
     const e = new Error(`HTTP ${resp.status}`);
