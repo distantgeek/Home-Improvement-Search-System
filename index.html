@@ -1269,12 +1269,14 @@ async function runSearch() {
         if (!ex.sourceQueries.includes(q)) ex.sourceQueries.push(q);
 
         const pri  = { google: 0, eventbrite: 1, facebook: 2 };
-        const newP = pri[row.sourceType] ?? 99;
-        const exP  = pri[ex.sourceType]  ?? 99;
+        const newP = pri[row.sourceType]  ?? 99;
+        const exP  = pri[ex.sourceType]   ?? 99;
+        const upgrade = newP < exP
+          || (newP === exP && (row.pageScore || 0) > (ex.pageScore || 0));
 
-        if (newP < exP) {
-          // Higher-priority source arrived later — swap in its URL/data,
-          // keep accumulated queries and coverage.
+        if (upgrade) {
+          // Better source type or higher-scoring page within the same source —
+          // swap in the better record, keep accumulated queries and coverage.
           row.sourceQueries = ex.sourceQueries;
           row.coverage      = ex.coverage;
           dedupe.set(dk, row);
@@ -1534,13 +1536,22 @@ function normalizeEvent(evt, sourceQuery, searchState) {
                    : /site:facebook\.com/.test(sourceQuery)   ? 'facebook'
                    : 'google';
 
+  // Higher score = more likely to be the event's own authoritative page.
+  // Used as a tiebreaker when two records share the same sourceType.
+  const url = evt.link || '';
+  const currentYear = new Date().getFullYear();
+  const pageScore = (name.includes(String(currentYear))           ?  2 : 0)
+                  + (/\.(gov|us)\b/i.test(url)                    ? -1 : 0)
+                  + (/parks|recreation|tourism|countymd/i.test(url)? -1 : 0);
+
   return {
     name, startDate, endDate, venue, city, state, county, zip,
     type:          inferEventType(sourceQuery, name),
-    url:           evt.link || '',
+    url,
     source:        sourceQuery,
     sourceQueries: [],
     sourceType,
+    pageScore,
     attendance:    evt.attendance || '',
     contact:       evt.contact    || ''
   };
