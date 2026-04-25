@@ -1264,17 +1264,31 @@ async function runSearch() {
       if (dedupe.has(dk)) {
         const ex = dedupe.get(dk);
         if (!ex.sourceQueries.includes(q)) ex.sourceQueries.push(q);
-        // Prefer direct Google results over aggregator pages.
-        // Lower priority number = better source.
-        const pri = { google: 0, eventbrite: 1, facebook: 2 };
-        const newP = pri[row.sourceType]  ?? 99;
-        const exP  = pri[ex.sourceType]   ?? 99;
+
+        const pri  = { google: 0, eventbrite: 1, facebook: 2 };
+        const newP = pri[row.sourceType] ?? 99;
+        const exP  = pri[ex.sourceType]  ?? 99;
+
         if (newP < exP) {
-          // Upgrade: keep accumulated queries/coverage, swap in better data
+          // Higher-priority source arrived later — swap in its URL/data,
+          // keep accumulated queries and coverage.
           row.sourceQueries = ex.sourceQueries;
           row.coverage      = ex.coverage;
           dedupe.set(dk, row);
           results[results.indexOf(ex)] = row;
+        } else {
+          // Same or lower priority — but still merge location fields the
+          // primary record is missing, provided the duplicate is not Facebook
+          // (vendor-created FB events frequently have wrong/shop addresses).
+          if (row.sourceType !== 'facebook') {
+            if (!ex.zip    && row.zip)    ex.zip    = row.zip;
+            if (!ex.county && row.county) { ex.county = row.county; ex.state = row.state; ex.coverage = getCoverage(row.state, row.county); }
+            if (!ex.city   && row.city)   ex.city   = row.city;
+            if (!ex.venue  && row.venue)  ex.venue  = row.venue;
+          }
+          // Attendance and contact: take whichever record has it, any source.
+          if (!ex.attendance && row.attendance) ex.attendance = row.attendance;
+          if (!ex.contact    && row.contact)    ex.contact    = row.contact;
         }
         continue;
       }
