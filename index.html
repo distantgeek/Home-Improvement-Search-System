@@ -1258,6 +1258,9 @@ async function runSearch() {
     for (const evt of events) {
       const row = normalizeEvent(evt, q, state === 'ALL' ? null : state);
       if (!row) continue;
+      // Drop events that are explicitly dated in a prior year.
+      const thisYear = new Date().getFullYear();
+      if (row.startDate && row.startDate < `${thisYear}-01-01`) continue;
       if (dateFrom && row.startDate && row.startDate < dateFrom) continue;
       if (dateTo   && row.startDate && row.startDate > dateTo)   continue;
       const dk = dedupeKey(row);
@@ -1468,7 +1471,7 @@ function buildQueriesForState(counties, state, types) {
     ],
     'Home & Garden': () => [`home and garden show ${stateName} ${year}`],
     'County Fair':   () => [`county fair ${stateName} ${year}`],
-    'State Fair':    () => [`state fair ${stateName}`],
+    'State Fair':    () => [`state fair ${stateName} ${year}`],
     'Art & Craft':   () => [
       `art fair ${stateName} ${year}`,
       `craft show ${stateName} ${year}`,
@@ -1585,13 +1588,13 @@ function inferEventType(query, title) {
 function dedupeKey(row) {
   const name = (row.name || '')
     .toLowerCase()
-    .replace(/\s*:\s*.+$/, '')       // strip ": Sub-page" before normalizing
+    .replace(/\s*:\s*.+$/, '')       // "Event: Sub-page"
+    .replace(/\s+-\s+.+$/, '')       // "Event - Sub-page" (spaced hyphen = separator, not part of name)
+    .replace(/\s*[|–]\s*.+$/, '')    // "Event | Site" / "Event – something"
     .replace(/[^\w\s]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
   const year = (row.startDate || '').slice(0, 4);
-  // Prefer ZIP for locality; fall back to state so that the same event found
-  // by pages with/without a ZIP still collapses to one record.
   const locality = row.zip || row.state || '';
   return `${name}|${year}|${locality}`;
 }
