@@ -528,11 +528,14 @@
     white-space: nowrap;
     font-weight: 500;
   }
-  .type-badge.home-show  { background: rgba(91,141,238,.15); color: var(--blue);   border: 1px solid rgba(91,141,238,.3); }
-  .type-badge.county-fair{ background: rgba(45,212,191,.12); color: var(--teal);   border: 1px solid rgba(45,212,191,.3); }
-  .type-badge.state-fair { background: rgba(240,165,0,.12);  color: var(--amber);  border: 1px solid rgba(240,165,0,.3); }
-  .type-badge.garden     { background: rgba(34,197,94,.12);  color: var(--green);  border: 1px solid rgba(34,197,94,.3); }
-  .type-badge.art-craft  { background: rgba(168,85,247,.12); color: #c084fc;       border: 1px solid rgba(168,85,247,.3);}
+  .type-badge.home-show    { background: rgba(91,141,238,.15);  color: var(--blue);   border: 1px solid rgba(91,141,238,.3); }
+  .type-badge.county-fair  { background: rgba(45,212,191,.12);  color: var(--teal);   border: 1px solid rgba(45,212,191,.3); }
+  .type-badge.state-fair   { background: rgba(240,165,0,.12);   color: var(--amber);  border: 1px solid rgba(240,165,0,.3); }
+  .type-badge.garden       { background: rgba(34,197,94,.12);   color: var(--green);  border: 1px solid rgba(34,197,94,.3); }
+  .type-badge.art-craft    { background: rgba(168,85,247,.12);  color: #c084fc;       border: 1px solid rgba(168,85,247,.3);}
+  .type-badge.food-festival{ background: rgba(251,113,50,.12);  color: #fb7132;       border: 1px solid rgba(251,113,50,.3);}
+  .type-badge.fall-festival{ background: rgba(217,119,6,.12);   color: #d97706;       border: 1px solid rgba(217,119,6,.3); }
+  .type-badge.community    { background: rgba(236,72,153,.12);  color: #ec4899;       border: 1px solid rgba(236,72,153,.3);}
 
   .coverage-dot {
     display: inline-flex;
@@ -830,6 +833,21 @@
           <label for="typeArt">Art &amp; Craft Shows</label>
           <span class="type-badge art-craft">ART</span>
         </div>
+        <div class="type-item">
+          <input type="checkbox" id="typeFood">
+          <label for="typeFood">Food &amp; Wine Festivals</label>
+          <span class="type-badge food-festival">FOOD</span>
+        </div>
+        <div class="type-item">
+          <input type="checkbox" id="typeFall" checked>
+          <label for="typeFall">Fall &amp; Harvest Festivals</label>
+          <span class="type-badge fall-festival">FALL</span>
+        </div>
+        <div class="type-item">
+          <input type="checkbox" id="typeCommunity">
+          <label for="typeCommunity">Community &amp; Cultural Festivals</label>
+          <span class="type-badge community">FEST</span>
+        </div>
       </div>
     </div>
 
@@ -956,11 +974,14 @@ const COUNTIES = {
 };
 
 const EVENT_TYPES = {
-  'Home Show':     'home-show',
-  'Home & Garden': 'garden',
-  'County Fair':   'county-fair',
-  'State Fair':    'state-fair',
-  'Art & Craft':   'art-craft'
+  'Home Show':       'home-show',
+  'Home & Garden':   'garden',
+  'County Fair':     'county-fair',
+  'State Fair':      'state-fair',
+  'Art & Craft':     'art-craft',
+  'Food Festival':   'food-festival',
+  'Fall Festival':   'fall-festival',
+  'Community Festival': 'community'
 };
 
 const STATE_ORDER = ['MD','VA','PA','NJ','DE','DC'];
@@ -1132,6 +1153,9 @@ function getSelectedTypes() {
   if (document.getElementById('typeCountyFair').checked) types.push('County Fair');
   if (document.getElementById('typeStateFair').checked)  types.push('State Fair');
   if (document.getElementById('typeArt').checked)        types.push('Art & Craft');
+  if (document.getElementById('typeFood').checked)       types.push('Food Festival');
+  if (document.getElementById('typeFall').checked)       types.push('Fall Festival');
+  if (document.getElementById('typeCommunity').checked)  types.push('Community Festival');
   return types;
 }
 
@@ -1374,7 +1398,7 @@ async function callSerper(apiKey, query) {
 
 // Home improvement shows rarely appear in Google's events carousel — they're
 // in organic results instead. This converts qualifying organic hits to event shape.
-const ORGANIC_EVENT_RE  = /\b(home\s*show|home\s+improvement\s+(show|expo|fair)|home\s*(and|&)\s*garden\s+(show|expo)|remodeling\s+(show|expo)|renovation\s+(show|expo)|outdoor\s+living\s+(show|expo)|county\s+fair|state\s+fair|art\s+fair|craft\s+(show|fair)|home\s+expo|trade\s+show|home\s+garden\s+expo)\b/i;
+const ORGANIC_EVENT_RE  = /\b(home\s*show|home\s+improvement\s+(show|expo|fair)|home\s*(and|&)\s*garden\s+(show|expo)|remodeling\s+(show|expo)|renovation\s+(show|expo)|outdoor\s+living\s+(show|expo)|county\s+fair|state\s+fair|art\s+fair|craft\s+(show|fair|festival)|home\s+expo|trade\s+show|home\s+garden\s+expo|food\s+festival|wine\s+festival|beer\s+festival|seafood\s+festival|strawberry\s+festival|harvest\s+festival|fall\s+festival|pumpkin\s+festival|oktoberfest|cultural\s+festival|heritage\s+festival|community\s+festival|spring\s+festival|summer\s+festival|outdoor\s+festival|farm\s+show|agricultural\s+fair)\b/i;
 const ORGANIC_DATE_RE   = /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+\d{1,2}(?:\s*[-–]\s*\d{1,2})?,?\s*202\d/i;
 const ATTENDANCE_RE     = /\b(?:over\s+|up\s+to\s+|about\s+|approximately\s+|attracts?\s+|draws?\s+|expected?\s+)?([\d,]+(?:k|\+)?)\s*(?:\+\s*)?(?:attendees?|visitors?|guests?|shoppers?|participants?)\b|\battendance\s+(?:of\s+)?(?:over\s+)?([\d,]+(?:k|\+)?)\b/i;
 const EMAIL_RE          = /\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b/;
@@ -1439,11 +1463,14 @@ function buildSupplementQueriesForState(state, types, supplements) {
 
   // One or two focused phrases per type — site: searches already narrow scope.
   const phraseMap = {
-    'Home Show':     ['"home show"', '"home improvement expo"'],
-    'Home & Garden': ['"home and garden show"'],
-    'County Fair':   ['"county fair"'],
-    'State Fair':    ['"state fair"'],
-    'Art & Craft':   ['"art fair"', '"craft show"'],
+    'Home Show':          ['"home show"', '"home improvement expo"'],
+    'Home & Garden':      ['"home and garden show"'],
+    'County Fair':        ['"county fair"'],
+    'State Fair':         ['"state fair"'],
+    'Art & Craft':        ['"art fair"', '"craft show"'],
+    'Food Festival':      ['"food festival"', '"wine festival"', '"seafood festival"'],
+    'Fall Festival':      ['"fall festival"', '"harvest festival"', '"pumpkin festival"'],
+    'Community Festival': ['"community festival"', '"cultural festival"', '"outdoor festival"'],
   };
   const siteMap = {
     eventbrite: 'site:eventbrite.com',
@@ -1489,6 +1516,28 @@ function buildQueriesForState(counties, state, types) {
       `craft show ${stateName} ${year}`,
       `craft festival ${stateName} ${year}`,
       `art and craft show ${stateName} ${year}`,
+    ],
+    'Food Festival': () => [
+      `food festival ${stateName} ${year}`,
+      `wine festival ${stateName} ${year}`,
+      `beer festival ${stateName} ${year}`,
+      `seafood festival ${stateName} ${year}`,
+      `strawberry festival ${stateName} ${year}`,
+      `taste of ${stateName} ${year}`,
+    ],
+    'Fall Festival': () => [
+      `fall festival ${stateName} ${year}`,
+      `harvest festival ${stateName} ${year}`,
+      `pumpkin festival ${stateName} ${year}`,
+      `oktoberfest ${stateName} ${year}`,
+    ],
+    'Community Festival': () => [
+      `community festival ${stateName} ${year}`,
+      `cultural festival ${stateName} ${year}`,
+      `heritage festival ${stateName} ${year}`,
+      `outdoor festival ${stateName} ${year}`,
+      `spring festival ${stateName} ${year}`,
+      `summer festival ${stateName} ${year}`,
     ],
   };
   const seen    = new Set();
@@ -1601,10 +1650,18 @@ function parseDates(dateInput) {
 
 function inferEventType(query, title) {
   const s = (query + ' ' + title).toLowerCase();
-  if (s.includes('state fair'))  return 'State Fair';
-  if (s.includes('county fair')) return 'County Fair';
-  if (s.includes('garden'))      return 'Home & Garden';
-  if (s.includes('art') || s.includes('craft')) return 'Art & Craft';
+  if (s.includes('state fair'))   return 'State Fair';
+  if (s.includes('county fair') || /\b\w+ county fair\b/.test(s)) return 'County Fair';
+  if (s.includes('harvest festival') || s.includes('fall festival') ||
+      s.includes('pumpkin festival') || s.includes('oktoberfest'))  return 'Fall Festival';
+  if (s.includes('food festival') || s.includes('wine festival') ||
+      s.includes('beer festival') || s.includes('seafood') ||
+      s.includes('strawberry festival') || s.includes('taste of'))  return 'Food Festival';
+  if (s.includes('cultural festival') || s.includes('heritage festival') ||
+      s.includes('community festival') || s.includes('spring festival') ||
+      s.includes('summer festival') || s.includes('outdoor festival'))return 'Community Festival';
+  if (s.includes('garden') || s.includes('outdoor living'))         return 'Home & Garden';
+  if (s.includes('art') || s.includes('craft'))                     return 'Art & Craft';
   return 'Home Show';
 }
 
