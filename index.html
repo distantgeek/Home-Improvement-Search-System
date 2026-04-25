@@ -1506,44 +1506,32 @@ function buildQueriesForState(counties, state, types) {
       `home garden expo ${stateName} ${year}`,
       `outdoor living show ${stateName} ${year}`,
     ],
-    // Per-county queries only fire when the user selected a subset of counties.
-    // When all counties are selected, the state-level query + higher num cap
-    // covers the same ground without burning one credit per county.
-    'County Fair':   () => {
-      const allSelected = counties.length >= COUNTIES[state].length;
-      return [
-        `county fair ${stateName} ${year}`,
-        ...(allSelected ? [] : counties.map(c => `${countyForQuery(c)} fair ${stateName} ${year}`)),
-      ];
-    },
+    // State-level query + one per selected county — every county fair has a
+    // dedicated page that won't rank in a generic state-wide search.
+    'County Fair':   () => [
+      `county fair ${stateName} ${year}`,
+      ...counties.map(c => `${countyForQuery(c)} fair ${stateName} ${year}`),
+    ],
     'State Fair':    () => [`state fair ${stateName} ${year}`],
     'Art & Craft':   () => [
       `art fair ${stateName} ${year}`,
       `craft show ${stateName} ${year}`,
       `craft festival ${stateName} ${year}`,
-      `art and craft show ${stateName} ${year}`,
     ],
     'Food Festival': () => [
       `food festival ${stateName} ${year}`,
       `wine festival ${stateName} ${year}`,
-      `beer festival ${stateName} ${year}`,
       `seafood festival ${stateName} ${year}`,
-      `strawberry festival ${stateName} ${year}`,
-      `taste of ${stateName} ${year}`,
     ],
     'Fall Festival': () => [
       `fall festival ${stateName} ${year}`,
       `harvest festival ${stateName} ${year}`,
       `pumpkin festival ${stateName} ${year}`,
-      `oktoberfest ${stateName} ${year}`,
     ],
     'Community Festival': () => [
       `community festival ${stateName} ${year}`,
       `cultural festival ${stateName} ${year}`,
-      `heritage festival ${stateName} ${year}`,
       `outdoor festival ${stateName} ${year}`,
-      `spring festival ${stateName} ${year}`,
-      `summer festival ${stateName} ${year}`,
     ],
   };
   const seen    = new Set();
