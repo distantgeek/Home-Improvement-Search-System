@@ -1,0 +1,7 @@
+services:
+  hiss:
+    image: ghcr.io/distantgeek/home-improvement-search-system:latest
+    container_name: hiss
+    restart: unless-stopped
+    ports:
+      - "8080:80"
