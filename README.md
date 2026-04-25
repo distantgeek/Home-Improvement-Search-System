@@ -55,16 +55,38 @@ A new image is built automatically and pushed to
 `ghcr.io/distantgeek/home-improvement-search-system:latest` on every push to `main`
 via GitHub Actions.
 
-### Docker Compose (recommended)
+### Docker Compose — NPM / external network (recommended)
 
-```bash
-docker compose pull
-docker compose up -d
+If your reverse proxy (e.g. Nginx Proxy Manager) runs in a separate stack, attach
+the container directly to its Docker network — no host port binding needed.
+
+1. Find your proxy network name:
+   ```bash
+   docker network ls
+   ```
+2. Edit `docker-compose.yml` and replace `YOUR_NPM_NETWORK_NAME` with that name.
+3. Deploy:
+   ```bash
+   docker compose pull && docker compose up -d
+   ```
+4. In NPM, add a Proxy Host pointing to `hiss:80` (container name + internal port).
+
+### Docker Compose — host port (standalone / no proxy network)
+
+If you prefer a direct host port binding, replace the `networks` block in
+`docker-compose.yml` with a `ports` mapping:
+
+```yaml
+services:
+  hiss:
+    image: ghcr.io/distantgeek/home-improvement-search-system:latest
+    container_name: hiss
+    restart: unless-stopped
+    ports:
+      - "8080:80"    # change 8080 if the port is already allocated
 ```
 
-Then point your reverse proxy at port `8080`.
-
-### Docker run (one-liner)
+### Docker run (one-liner, host port)
 
 ```bash
 docker run -d \
@@ -74,7 +96,7 @@ docker run -d \
   ghcr.io/distantgeek/home-improvement-search-system:latest
 ```
 
-### NGINX reverse proxy snippet
+### NGINX reverse proxy snippet (host port)
 
 ```nginx
 location / {
@@ -87,13 +109,7 @@ location / {
 ### Updating
 
 ```bash
-# Compose
 docker compose pull && docker compose up -d
-
-# docker run
-docker pull ghcr.io/distantgeek/home-improvement-search-system:latest
-docker stop hiss && docker rm hiss
-# re-run the docker run command above
 ```
 
 ## Development
