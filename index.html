@@ -1346,7 +1346,7 @@ async function callSerper(apiKey, query) {
   const resp = await fetch('https://google.serper.dev/search', {
     method:  'POST',
     headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ q: query, gl: 'us', hl: 'en', num: 30 })
+    body:    JSON.stringify({ q: query, gl: 'us', hl: 'en', num: 40 })
   });
   if (!resp.ok) {
     const e = new Error(`HTTP ${resp.status}`);
@@ -1374,9 +1374,12 @@ const ORGANIC_DATE_RE   = /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|M
 const ATTENDANCE_RE     = /\b(?:over\s+|up\s+to\s+|about\s+|approximately\s+|attracts?\s+|draws?\s+|expected?\s+)?([\d,]+(?:k|\+)?)\s*(?:\+\s*)?(?:attendees?|visitors?|guests?|shoppers?|participants?)\b|\battendance\s+(?:of\s+)?(?:over\s+)?([\d,]+(?:k|\+)?)\b/i;
 const EMAIL_RE          = /\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b/;
 const PHONE_RE          = /\(?\b\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}\b/;
+// Domains that are never useful event pages — encyclopedias, social profiles.
+const SKIP_DOMAIN_RE    = /\b(wikipedia\.org|instagram\.com|twitter\.com|x\.com|tiktok\.com|pinterest\.com|linkedin\.com)\b/;
 
 function organicsToEvents(organics) {
   return organics
+    .filter(o => !SKIP_DOMAIN_RE.test(o.link || ''))
     .filter(o => ORGANIC_EVENT_RE.test((o.title || '') + ' ' + (o.snippet || '')))
     .map(o => {
       const text       = (o.title || '') + ' ' + (o.snippet || '');
@@ -1385,8 +1388,13 @@ function organicsToEvents(organics) {
       const emailMatch = (o.snippet || '').match(EMAIL_RE);
       const phoneMatch = (o.snippet || '').match(PHONE_RE);
       const contact    = [emailMatch?.[0], phoneMatch?.[0]].filter(Boolean).join(' | ');
+      const title = (o.title || '')
+        .replace(/\s*[|–]\s*.{0,50}$/, '')                                      // "Event | Site Name"
+        .replace(/\s*:\s*.+$/, '')                                               // "Event: Sub-page / Attraction"
+        .replace(/\s*-\s*(tickets?|schedule|dates?|register|event\s+details?)\s*$/i, '')
+        .trim();
       return {
-        title:      (o.title || '').replace(/\s*[|–]\s*.{0,50}$/, '').replace(/\s*-\s*(tickets?|schedule|dates?|register|event\s+details?)\s*$/i, '').trim(),
+        title,
         date:       (text.match(ORGANIC_DATE_RE) || [])[0] || null,
         address:    o.snippet || '',
         link:       o.link || '',
@@ -1575,8 +1583,17 @@ function inferEventType(query, title) {
 }
 
 function dedupeKey(row) {
-  const name = (row.name || '').toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
-  return `${name}|${row.startDate || ''}|${row.zip || ''}`;
+  const name = (row.name || '')
+    .toLowerCase()
+    .replace(/\s*:\s*.+$/, '')       // strip ": Sub-page" before normalizing
+    .replace(/[^\w\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const year = (row.startDate || '').slice(0, 4);
+  // Prefer ZIP for locality; fall back to state so that the same event found
+  // by pages with/without a ZIP still collapses to one record.
+  const locality = row.zip || row.state || '';
+  return `${name}|${year}|${locality}`;
 }
 
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
