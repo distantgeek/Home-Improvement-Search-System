@@ -1375,7 +1375,7 @@ async function callSerper(apiKey, query) {
   const resp = await fetch('https://google.serper.dev/search', {
     method:  'POST',
     headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ q: query, gl: 'us', hl: 'en', num: 40 })
+    body:    JSON.stringify({ q: query, gl: 'us', hl: 'en', num: 50 })
   });
   if (!resp.ok) {
     const e = new Error(`HTTP ${resp.status}`);
@@ -1462,15 +1462,17 @@ function buildSupplementQueriesForState(state, types, supplements) {
   const queries   = [];
 
   // One or two focused phrases per type — site: searches already narrow scope.
+  // One phrase per type keeps supplement query count manageable.
+  // The site: prefix already narrows scope; broad phrasing finds more.
   const phraseMap = {
-    'Home Show':          ['"home show"', '"home improvement expo"'],
+    'Home Show':          ['"home show"'],
     'Home & Garden':      ['"home and garden show"'],
     'County Fair':        ['"county fair"'],
     'State Fair':         ['"state fair"'],
-    'Art & Craft':        ['"art fair"', '"craft show"'],
-    'Food Festival':      ['"food festival"', '"wine festival"', '"seafood festival"'],
-    'Fall Festival':      ['"fall festival"', '"harvest festival"', '"pumpkin festival"'],
-    'Community Festival': ['"community festival"', '"cultural festival"', '"outdoor festival"'],
+    'Art & Craft':        ['"craft show"'],
+    'Food Festival':      ['"food festival"'],
+    'Fall Festival':      ['"fall festival"'],
+    'Community Festival': ['"community festival"'],
   };
   const siteMap = {
     eventbrite: 'site:eventbrite.com',
@@ -1504,12 +1506,16 @@ function buildQueriesForState(counties, state, types) {
       `home garden expo ${stateName} ${year}`,
       `outdoor living show ${stateName} ${year}`,
     ],
-    // State-level query catches the biggest fairs; per-county queries catch
-    // smaller fairs that don't rank in state-wide results.
-    'County Fair':   () => [
-      `county fair ${stateName} ${year}`,
-      ...counties.map(c => `${countyForQuery(c)} fair ${stateName} ${year}`),
-    ],
+    // Per-county queries only fire when the user selected a subset of counties.
+    // When all counties are selected, the state-level query + higher num cap
+    // covers the same ground without burning one credit per county.
+    'County Fair':   () => {
+      const allSelected = counties.length >= COUNTIES[state].length;
+      return [
+        `county fair ${stateName} ${year}`,
+        ...(allSelected ? [] : counties.map(c => `${countyForQuery(c)} fair ${stateName} ${year}`)),
+      ];
+    },
     'State Fair':    () => [`state fair ${stateName} ${year}`],
     'Art & Craft':   () => [
       `art fair ${stateName} ${year}`,
