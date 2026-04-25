@@ -1586,11 +1586,26 @@ function inferEventType(query, title) {
 }
 
 function dedupeKey(row) {
-  const name = (row.name || '')
-    .toLowerCase()
-    .replace(/\s*:\s*.+$/, '')       // "Event: Sub-page"
-    .replace(/\s+-\s+.+$/, '')       // "Event - Sub-page" (spaced hyphen = separator, not part of name)
-    .replace(/\s*[|–]\s*.+$/, '')    // "Event | Site" / "Event – something"
+  // Smart spaced-hyphen handling: keep whichever side contains event keywords.
+  // "Maryland State Fair - Deggeller Attractions" → keep left (has "fair")
+  // "Come on In - Worcester County Fair 2026"    → keep right (has "fair")
+  // Both sides or neither have keywords → leave the name unchanged.
+  const EVENT_CORE_RE = /\b(fair|show|expo|festival|exhibit|convention)\b/;
+  let rawName = (row.name || '').toLowerCase();
+  const parts = rawName.split(/\s+-\s+/);
+  if (parts.length >= 2) {
+    const before = parts[0];
+    const after  = parts.slice(1).join(' - ');
+    const bHas   = EVENT_CORE_RE.test(before);
+    const aHas   = EVENT_CORE_RE.test(after);
+    if      (bHas && !aHas) rawName = before;
+    else if (aHas && !bHas) rawName = after;
+  }
+
+  const name = rawName
+    .replace(/\s*:\s*.+$/, '')      // "Event: Sub-page"
+    .replace(/\s*[|–]\s*.+$/, '')   // "Event | Site" / "Event – something"
+    .replace(/\b20\d\d\b/g, '')     // "Fair 2026" → "Fair" (year in name ≠ event identity)
     .replace(/[^\w\s]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
