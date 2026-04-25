@@ -3,5 +3,10 @@ services:
     image: ghcr.io/distantgeek/home-improvement-search-system:latest
     container_name: hiss
     restart: unless-stopped
-    ports:
-      - "8080:80"
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
+    name: YOUR_NPM_NETWORK_NAME   # replace with output of: docker network ls
