@@ -217,6 +217,24 @@
   .county-search:focus { border-color: var(--amber); }
   .county-search::placeholder { color: var(--text-dim); }
 
+  .custom-query-input {
+    width: 100%;
+    min-height: 72px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 7px 10px;
+    outline: none;
+    resize: vertical;
+    box-sizing: border-box;
+    line-height: 1.6;
+  }
+  .custom-query-input:focus  { border-color: var(--amber); }
+  .custom-query-input::placeholder { color: var(--text-dim); }
+
   .county-list {
     max-height: 200px;
     overflow-y: auto;
@@ -869,6 +887,16 @@
       </div>
     </div>
 
+    <!-- Custom Queries -->
+    <div class="filter-section">
+      <div class="section-label">CUSTOM QUERIES</div>
+      <textarea class="custom-query-input" id="customQueries"
+        placeholder="One query per line&#10;e.g. boat expo Maryland 2026&#10;home and hearth show Baltimore"></textarea>
+      <div style="font-size:10px;color:var(--text-dim);margin-top:5px;font-family:var(--font-mono);line-height:1.5;">
+        Added to every run. Saved automatically.
+      </div>
+    </div>
+
     <!-- Service Area Filter -->
     <div class="filter-section">
       <div class="section-label">SERVICE AREA FILTER</div>
@@ -1015,6 +1043,13 @@ document.addEventListener('DOMContentLoaded', () => {
 function loadFromStorage() {
   const key = localStorage.getItem('hiss.serperApiKey');
   if (key) document.getElementById('apiKeyInput').value = key;
+
+  const savedQueries = localStorage.getItem('hiss.customQueries');
+  if (savedQueries) document.getElementById('customQueries').value = savedQueries;
+  document.getElementById('customQueries').addEventListener('input', e => {
+    localStorage.setItem('hiss.customQueries', e.target.value);
+  });
+
   const raw = localStorage.getItem('hiss.servedCounties');
   if (raw) {
     try {
@@ -1198,6 +1233,11 @@ async function runSearch() {
   clearError();
 
   const queries = buildAllQueries(state, counties, types, supplements);
+  // Append custom queries, deduping against already-generated ones.
+  const customRaw = document.getElementById('customQueries').value;
+  customRaw.split('\n').map(q => q.trim()).filter(Boolean).forEach(q => {
+    if (!queries.includes(q)) queries.push(q);
+  });
   if (!queries.length) { showError('No queries generated — check your selections.'); return; }
 
   if (queries.length > 50) {
