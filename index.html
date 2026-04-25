@@ -1464,19 +1464,31 @@ function buildSupplementQueriesForState(state, types, supplements) {
 function buildQueriesForState(counties, state, types) {
   const stateName = STATE_NAMES[state];
   const year = new Date().getFullYear();
-  // County-level queries don't trigger Google's Events carousel.
-  // State-level queries do — county filtering happens post-search via ZIP enrichment.
   const templates = {
     'Home Show':     () => [
       `home show ${stateName} ${year}`,
       `home improvement expo ${stateName} ${year}`,
+      `home improvement show ${stateName} ${year}`,
+      `remodeling show ${stateName} ${year}`,
+      `home expo ${stateName} ${year}`,
     ],
-    'Home & Garden': () => [`home and garden show ${stateName} ${year}`],
-    'County Fair':   () => [`county fair ${stateName} ${year}`],
+    'Home & Garden': () => [
+      `home and garden show ${stateName} ${year}`,
+      `home garden expo ${stateName} ${year}`,
+      `outdoor living show ${stateName} ${year}`,
+    ],
+    // State-level query catches the biggest fairs; per-county queries catch
+    // smaller fairs that don't rank in state-wide results.
+    'County Fair':   () => [
+      `county fair ${stateName} ${year}`,
+      ...counties.map(c => `${countyForQuery(c)} fair ${stateName} ${year}`),
+    ],
     'State Fair':    () => [`state fair ${stateName} ${year}`],
     'Art & Craft':   () => [
       `art fair ${stateName} ${year}`,
       `craft show ${stateName} ${year}`,
+      `craft festival ${stateName} ${year}`,
+      `art and craft show ${stateName} ${year}`,
     ],
   };
   const seen    = new Set();
