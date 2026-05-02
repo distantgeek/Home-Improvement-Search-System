@@ -753,6 +753,50 @@
     transition: all .15s;
   }
   .btn-primary:hover { background: #ffb820; }
+
+  /* expandable rows */
+  .expand-chevron {
+    display: inline-block;
+    width: 14px;
+    font-size: 10px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: transform .15s, color .15s;
+    user-select: none;
+    margin-right: 4px;
+    vertical-align: middle;
+  }
+  .expand-chevron:hover { color: var(--amber); }
+  .expand-chevron.open { transform: rotate(90deg); color: var(--amber); }
+
+  .alt-urls-row td {
+    background: var(--surface2);
+    padding: 10px 14px 10px 44px !important;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+  }
+  .alt-urls-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: .06em;
+    margin-bottom: 4px;
+  }
+  .alt-url-list { display: flex; flex-direction: column; gap: 3px; }
+  .alt-url-list a {
+    color: var(--blue);
+    text-decoration: none;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    word-break: break-all;
+    transition: color .15s;
+  }
+  .alt-url-list a:hover { color: var(--amber); }
+  .alt-url-source {
+    font-size: 9px;
+    color: var(--text-dim);
+    margin-left: 6px;
+  }
 </style>
 </head>
 <body>
@@ -1378,7 +1422,7 @@ async function runSearch() {
     results = results.filter(r => !r.county || countySet.has(r.county));
   }
 
-  currentResults = results;
+  currentResults = fuzzyMergeResults(results);
   searchRunning  = false;
   stopRequested  = false;
   runBtn.innerHTML = '▶ &nbsp;RUN SEARCH';
@@ -1388,7 +1432,7 @@ async function runSearch() {
 
   const pillsEl = document.getElementById('sourcePills');
 
-  if (!results.length) {
+  if (!currentResults.length) {
     setStatus('done', '0 RESULTS');
     document.getElementById('resultCount').textContent = 'No events found for the selected filters';
     pillsEl.style.display = 'none';
@@ -1396,10 +1440,10 @@ async function runSearch() {
     document.getElementById('tablePlaceholder').innerHTML =
       '<div class="placeholder-icon">🔍</div><div class="placeholder-text">No events found — try different counties or a broader date range</div>';
   } else {
-    setStatus('done', `${results.length} RESULTS`);
+    setStatus('done', `${currentResults.length} RESULTS`);
     // Source breakdown pills
     const counts = { google: 0, eventbrite: 0, facebook: 0 };
-    results.forEach(r => { counts[r.sourceType] = (counts[r.sourceType] || 0) + 1; });
+    currentResults.forEach(r => { counts[r.sourceType] = (counts[r.sourceType] || 0) + 1; });
     const labels = { google: 'Google', eventbrite: 'Eventbrite', facebook: 'Facebook' };
     const pills  = Object.entries(counts)
       .filter(([, n]) => n > 0)
@@ -1407,7 +1451,7 @@ async function runSearch() {
       .join('');
     pillsEl.innerHTML      = pills;
     pillsEl.style.display  = Object.keys(counts).filter(k => counts[k] > 0).length > 1 ? 'flex' : 'none';
-    renderResults(applyFilters(results));
+    renderResults(applyFilters(currentResults));
   }
 }
 
@@ -1728,6 +1772,79 @@ function dedupeKey(row) {
   return `${name}|${year}|${locality}`;
 }
 
+// ═══════════════════════════════════════════
+//  FUZZY DEDUP (post-search merge pass)
+// ═══════════════════════════════════════════
+
+function normalizeForDedup(name) {
+  let s = (name || '').toLowerCase();
+  s = s.replace(/\b(maryland|virginia|pennsylvania|washington\s*dc|new\s*jersey|delaware|md|va|pa|dc|nj|de)\b/g, '');
+  s = s.replace(/\b(the|annual|official|visit|welcome\s*to|home\s*of|guide|info|details?|tickets?|schedule|dates?)\b/g, '');
+  s = s.replace(/\b20\d\d\b/g, '');
+  s = s.replace(/\b(fairgrounds|convention\s*center|expo\s*center|event\s*center|civic\s*center|grounds)\b/g, '');
+  s = s.replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+  return s;
+}
+
+function jaccardSimilarity(a, b) {
+  const setA = new Set(a.split(/\s+/).filter(Boolean));
+  const setB = new Set(b.split(/\s+/).filter(Boolean));
+  if (!setA.size || !setB.size) return 0;
+  let intersection = 0;
+  for (const w of setA) { if (setB.has(w)) intersection++; }
+  const union = new Set([...setA, ...setB]).size;
+  return intersection / union;
+}
+
+function fuzzyMergeResults(results) {
+  const buckets = new Map();
+  for (const r of results) {
+    const loc = r.zip || `${r.city}|${r.state}`;
+    const key = `${r.startDate || ''}|${loc}`;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(r);
+  }
+
+  const merged = new Set();
+  const altUrlAccum = new Map();
+
+  for (const [, group] of buckets) {
+    if (group.length < 2) continue;
+    for (let i = 0; i < group.length; i++) {
+      if (merged.has(results.indexOf(group[i]))) continue;
+      const normA = normalizeForDedup(group[i].name);
+      for (let j = i + 1; j < group.length; j++) {
+        if (merged.has(results.indexOf(group[j]))) continue;
+        const normB = normalizeForDedup(group[j].name);
+        const sim = jaccardSimilarity(normA, normB);
+        if (sim >= 0.6) {
+          const pri = { google: 0, eventbrite: 1, facebook: 2 };
+          const pA = pri[group[i].sourceType] ?? 99;
+          const pB = pri[group[j].sourceType] ?? 99;
+          let winner, loser;
+          if (pA < pB || (pA === pB && (group[i].pageScore || 0) >= (group[j].pageScore || 0))) {
+            winner = group[i]; loser = group[j];
+          } else {
+            winner = group[j]; loser = group[i];
+          }
+          const wIdx = results.indexOf(winner);
+          if (!altUrlAccum.has(wIdx)) altUrlAccum.set(wIdx, []);
+          altUrlAccum.get(wIdx).push({ url: loser.url, sourceType: loser.sourceType });
+          loser.sourceQueries.forEach(q => {
+            if (!winner.sourceQueries.includes(q)) winner.sourceQueries.push(q);
+          });
+          merged.add(results.indexOf(loser));
+        }
+      }
+    }
+  }
+
+  for (const [idx, urls] of altUrlAccum) {
+    results[idx].altUrls = urls;
+  }
+  return results.filter((_, i) => !merged.has(i));
+}
+
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ═══════════════════════════════════════════
@@ -1794,14 +1911,20 @@ function renderResults(results) {
   placeholder.style.display = 'none';
   table.style.display       = 'table';
 
-  tbody.innerHTML = results.map(e => {
+  tbody.innerHTML = results.map((e, idx) => {
     const typeClass = EVENT_TYPES[e.type] || 'home-show';
     const covLabel  = { served: '✓ Served', 'not-served': '✗ Not Served', unknown: '? Unconfigured' }[e.coverage];
     const dateStr   = (!e.endDate || e.startDate === e.endDate)
       ? fmtDate(e.startDate)
       : `${fmtDate(e.startDate)} – ${fmtDate(e.endDate)}`;
-    return `<tr>
-      <td><a class="event-link" href="${escHtml(e.url)}" target="_blank">${escHtml(e.name)}</a></td>
+
+    const hasAlts = e.altUrls && e.altUrls.length > 0;
+    const chevron = hasAlts
+      ? `<span class="expand-chevron" data-idx="${idx}" onclick="toggleAltUrls(this)">▶</span>`
+      : '<span style="display:inline-block;width:14px"></span>';
+
+    const row = `<tr>
+      <td>${chevron}<a class="event-link" href="${escHtml(e.url)}" target="_blank">${escHtml(e.name)}</a></td>
       <td class="mono">${dateStr}</td>
       <td>${escHtml(e.venue)}</td>
       <td>${escHtml(e.city)}</td>
@@ -1813,6 +1936,18 @@ function renderResults(results) {
       <td><span class="coverage-dot ${e.coverage}">${covLabel}</span></td>
       <td><a class="event-link" href="${escHtml(e.url)}" target="_blank" title="View event">↗</a></td>
     </tr>`;
+
+    if (!hasAlts) return row;
+
+    const altLinks = e.altUrls.map(u => {
+      const srcLabel = u.sourceType === 'eventbrite' ? 'Eventbrite' : u.sourceType === 'facebook' ? 'Facebook' : 'Google';
+      return `<a href="${escHtml(u.url)}" target="_blank">${escHtml(u.url)}<span class="alt-url-source">[${srcLabel}]</span></a>`;
+    }).join('');
+
+    return row + `<tr class="alt-urls-row" data-parent="${idx}" style="display:none"><td colspan="11">
+      <div class="alt-urls-label">ALTERNATE URLs (${e.altUrls.length})</div>
+      <div class="alt-url-list">${altLinks}</div>
+    </td></tr>`;
   }).join('');
 }
 
@@ -1832,7 +1967,7 @@ function escHtml(s) {
 // ═══════════════════════════════════════════
 function exportCSV() {
   const visible = applyFilters(currentResults);
-  const headers = ['Event Name','Start Date','End Date','Venue','City','State','County','ZIP','Type','Attendance','Contact','Coverage','Source','Source URL'];
+  const headers = ['Event Name','Start Date','End Date','Venue','City','State','County','ZIP','Type','Attendance','Contact','Coverage','Source','Source URL','Alternate URLs'];
   const rows    = visible.map(e => [
     `"${(e.name       || '').replace(/"/g, '""')}"`,
     e.startDate,
@@ -1843,7 +1978,8 @@ function exportCSV() {
     e.zip, e.type,
     `"${(e.attendance || '').replace(/"/g, '""')}"`,
     `"${(e.contact    || '').replace(/"/g, '""')}"`,
-    e.coverage, e.sourceType || 'google', e.url
+    e.coverage, e.sourceType || 'google', e.url,
+    `"${(e.altUrls || []).map(u => u.url).join(' | ').replace(/"/g, '""')}"`
   ]);
   const csv  = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
@@ -1921,6 +2057,17 @@ function modalClearAll(state) {
 // ═══════════════════════════════════════════
 //  UTILS
 // ═══════════════════════════════════════════
+function toggleAltUrls(chevron) {
+  const idx = chevron.dataset.idx;
+  const row = chevron.closest('tr');
+  const next = row.nextElementSibling;
+  if (next && next.classList.contains('alt-urls-row') && next.dataset.parent === idx) {
+    const isOpen = next.style.display !== 'none';
+    next.style.display = isOpen ? 'none' : '';
+    chevron.classList.toggle('open', !isOpen);
+  }
+}
+
 function setStatus(type, text) {
   const pill    = document.getElementById('statusPill');
   pill.textContent = text;
