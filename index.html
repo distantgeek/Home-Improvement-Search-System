@@ -1692,12 +1692,6 @@ function normalizeEvent(evt, sourceQuery, searchState) {
       for (const s of STATE_ORDER) {
         if (COUNTIES[s].some(c => c.toLowerCase() === matched.toLowerCase())) {
           county = matched;
-          // Normalize "Alexandria City" → "Alexandria City" (keep City suffix for VA)
-          if (!/ City$/i.test(county) && !/ County$/i.test(county) && county !== 'District of Columbia') {
-            county = county + ' County';
-          }
-          // Strip " County" suffix for consistency with COUNTIES array
-          county = county.replace(/ County$/i, '').replace(/ city$/i, ' City');
           state = s;
           break;
         }
