@@ -249,109 +249,54 @@ CSV export includes all columns.
 
 ## Current State of the Repo
 
-- `index.html` — baseline working prototype with mock data (no live API calls yet). Demonstrates full UI/UX: sidebar filters, results table, served county indicators, CSV export. **Still uses mock data — Serper wiring is the top to-do.**
+All 7 original TODO items are complete. The app is fully functional with live Serper.dev API calls.
+
+- `index.html` — complete app with live Serper API, fuzzy dedup, expandable alternate URLs, served counties modal, CSV export, error handling, rate limiting, and stop button
 - `CLAUDE.md` — this file
 - `README.md` — setup and usage instructions
 - `LICENSE` — project license
 - `.gitignore` — standard web project ignores
-- `docs/county-coverage.md` — notes on how the served-county list is configured (user-editable via the modal; no baked-in defaults)
-- `scripts/build-zip-county.sh` — regenerates `data/zip-county.json` from the U.S. Census ZCTA-to-County relationship file (VA, MD, PA, DC, NJ only)
-- `data/zip-county.json` — **NOT YET GENERATED.** Run `scripts/build-zip-county.sh` once locally to produce it. The sandbox that created this commit couldn't reach `www2.census.gov` (see "Handoff Notes" below).
+- `docs/county-coverage.md` — notes on how the served-county list is configured
+- `scripts/build-zip-county.sh` — regenerates `data/zip-county.json` from the U.S. Census ZCTA-to-County relationship file (VA, MD, PA, DC, NJ, DE)
+- `data/zip-county.json` — generated ZIP→county lookup (~12k entries from Census 2020 data)
+- `Dockerfile` + `docker-compose.yml` — httpd:alpine container with GHCR auto-build on push to `main`
 
 ---
 
-## What Needs to Be Built Next (for Claude Code)
+## Completed Features
 
-### 1. Generate `data/zip-county.json`
+### 1. `data/zip-county.json` — Done
+Generated from Census 2020 ZCTA-to-County relationship file. Covers VA, MD, PA, DC, NJ, DE.
 
-Before touching the frontend, run the build script once to produce the ZIP→county lookup the frontend will need:
+### 2. Serper.dev API — Done
+Live `POST https://google.serper.dev/search` calls with API key from UI (localStorage: `hiss.serperApiKey`). Sequential queries with 400ms delay. Organic-to-event parsing for home shows that don't appear in Google's events carousel.
 
-```bash
-./scripts/build-zip-county.sh
-```
+### 3. ZIP + County enrichment — Done
+Regex ZIP extraction → `data/zip-county.json` lookup → Census Geocoder fallback.
 
-Commit the resulting `data/zip-county.json`. Expected size: a few hundred KB, ~10–15k ZCTAs across VA/MD/PA/DC/NJ/DE. Re-run whenever the Census publishes a refreshed relationship file (infrequent — the file tracks decennial Census geography).
+### 4. Rate limiting & loading UX — Done
+Per-query progress display, stop button, 429 backoff with 30s retry, offline detection, CORS error guidance.
 
-### 2. Wire up Serper.dev API
+### 5. Served Counties modal — Done
+Checkbox UI grouped by state, persisted to `hiss.servedCounties` in localStorage. Import/Export as JSON. Green/red/gray indicators with filter toggle.
 
-Replace the mock-data path in `index.html` with live Serper calls.
+### 6. Deduplication logic — Done (enhanced)
+Two-tier dedup:
+- **Tier 1** (during search): Exact key match on normalized name + year + locality. Smart hyphen handling to keep the event-keyword side.
+- **Tier 2** (post-search): Fuzzy merge via Jaccard token similarity (60% threshold) within date+location buckets. Strips state names, filler words, venue fragments before comparing.
+- Merged rows keep the best source URL as primary and accumulate alternates in `altUrls[]`. Expandable rows in the UI show alternate URLs. CSV export includes an "Alternate URLs" column.
 
-- **Endpoint:** `POST https://google.serper.dev/search` (general) or `POST https://google.serper.dev/events` (events-specific; prefer this where available).
-- **Headers:** `X-API-KEY: <user's key>`, `Content-Type: application/json`.
-- **Body:** `{"q": "<query string>", "gl": "us", "hl": "en"}`.
-- **Key storage:** add an API-key input to the settings panel; persist to `localStorage` under `hiss.serperApiKey`. Never hardcode.
-- **Query generation:** for each selected (county, category) pair, generate the query templates from the "Event Categories" table. Interpolate county + state name (e.g. `"home show Frederick County Maryland"`).
-- **Execution:** run queries **sequentially** with a small delay (300–500 ms) between calls. Serper allows bursts but the UX should also stream results progressively.
-- **Progress UI:** show `"Running query 7 of 42: home show Fairfax County Virginia…"` so the coordinator can see forward motion and kill the run if needed.
-- **Result normalization:** map Serper's events-result shape to the internal row shape:
-  ```
-  { eventName, startDate, endDate, venue, city, state, county, zip, url, eventType, sourceQuery }
-  ```
-
-### 3. ZIP + County enrichment pipeline
-
-Serper/Google don't always hand back a clean county. Resolution order:
-
-1. **Regex-extract ZIP** from the address/venue string (`\b\d{5}\b`).
-2. **Look up county** in `data/zip-county.json` (loaded once at startup via `fetch('data/zip-county.json')` — works from `file://` in modern browsers, but if you hit CORS, inline the JSON into the HTML at build time or require the user to serve the folder with `python3 -m http.server`).
-3. **Fallback to the Census Geocoder** when no ZIP is present: `https://geocoding.geo.census.gov/geocoder/geographies/onelineaddress?address=<urlencoded>&benchmark=Public_AR_Current&vintage=Current_Current&format=json`. Free, no key, but rate-limited — cache responses in memory for the session.
-4. If both fail, leave county blank and flag the row gray in the served-status indicator.
-
-**Rejected alternative:** USPS address validation API (requires an account, rate-limited, overkill for our ZIP-centric use case).
-
-### 4. Rate limiting & loading UX
-
-- Sequential queries with a ~400 ms delay. Never parallel-fan.
-- Per-query status chip in the UI: pending / running / done / failed.
-- A "Stop" button that cancels pending queries and keeps whatever finished.
-- On 429 from Serper, back off 30 s and retry once; if it fails again, surface a clear error.
-
-### 5. Served Counties modal
-
-- Opens from a top-right button in `index.html`.
-- Lists every county in VA/MD/PA/DC/NJ/DE grouped by state, each with a checkbox.
-- Persists to `localStorage` under `hiss.servedCounties` as an array of `"STATE:County Name"` strings (example: `["MD:Frederick County", "VA:Fairfax County", "DC:District of Columbia"]`).
-- **No baked-in defaults.** First-run state is an empty array — all results show gray until the coordinator configures coverage.
-- **Import/Export** buttons round-trip the array as JSON so the coordinator can back it up or share it across machines/browsers.
-- Changes take effect immediately — existing result rows re-evaluate their served/unserved badge without a page reload.
-- See `docs/county-coverage.md` for the full spec.
-
-### 6. Deduplication logic
-
-Same event surfaces in multiple queries. Deduplicate with this key:
-
-```js
-function dedupeKey({ eventName, startDate, zip }) {
-  const name = (eventName || '')
-    .toLowerCase()
-    .replace(/[^\w\s]/g, '')   // strip punctuation
-    .replace(/\s+/g, ' ')       // collapse whitespace
-    .trim();
-  return `${name}|${startDate || ''}|${zip || ''}`;
-}
-```
-
-When two rows share a key, keep the first but append the second's `sourceQuery` to a list so the coordinator can see every query that surfaced the event.
-
-### 7. Error handling
-
-Surface each of these as an inline banner (not an alert dialog):
-
-- **No API key / invalid API key** — prompt to re-enter in settings.
-- **Rate limit (429)** — shown with a "try again in N seconds" countdown.
-- **Network offline** — detected via `navigator.onLine`, with a retry button.
-- **Zero results across all queries** — friendly empty state, not an error.
-- **CORS / fetch failure on `data/zip-county.json`** — tell the user to serve the folder with `python3 -m http.server 8000` and reopen at `http://localhost:8000/`.
+### 7. Error handling — Done
+Inline error banners for: no/invalid API key, 429 rate limit, network offline, zero results, CORS/zip-county fetch failure.
 
 ---
 
-## Handoff Notes (read this if you're a new session picking this up)
+## Handoff Notes
 
-- The repo was bootstrapped in an Anthropic-hosted Claude Code sandbox (Claude Code on the web, research preview). That sandbox had two relevant limitations:
-  - **Outbound HTTP allowlist:** `curl` to `www2.census.gov` returned `403 host_not_allowed`, so `data/zip-county.json` could not be generated there. The `scripts/build-zip-county.sh` logic was validated against a synthetic fixture but has not been run against the live Census file.
-  - **Git push proxy:** the sandbox's git proxy rejected pushes with 403. All prior work up to this commit exists on `claude/review-claude-md-2RWSY` locally; the initial push out of the sandbox was performed manually by the user.
-- Neither limitation applies to Claude Code CLI running on the user's own machine — that's the recommended environment for finishing the build-out.
-- Before writing any frontend code in the next session, **run `scripts/build-zip-county.sh` and commit `data/zip-county.json`.** Everything downstream depends on it.
+- The repo was originally bootstrapped in an Anthropic-hosted Claude Code sandbox. All sandbox limitations (blocked outbound HTTP, git push proxy) have been resolved since moving to local development.
+- `data/zip-county.json` has been generated from the live Census file.
+- SSH access to the TrueNAS deployment host is configured (`truenas-local` in `~/.ssh/config`, user `assistant` with key `~/.ssh/assistant_ed25519`).
+- Dockge manages stacks at `/mnt/kevbot-store/stacks/` on the TrueNAS host.
 
 ---
 
@@ -517,31 +462,13 @@ PY
 echo "Done: $OUT"
 ````
 
-## Commit, push, then generate the ZIP data
+## What to work on next
 
-```bash
-chmod +x scripts/build-zip-county.sh
-
-git add .gitignore README.md CLAUDE.md docs/county-coverage.md scripts/build-zip-county.sh
-git commit -m "Add README, gitignore, docs, ZIP->county script; expand CLAUDE.md handoff spec"
-git push -u origin claude/review-claude-md-2RWSY
-
-# Now generate the ZIP lookup for real (couldn't run in the web sandbox):
-./scripts/build-zip-county.sh
-git add data/zip-county.json
-git commit -m "Generate ZIP->county lookup from Census 2020 ZCTA relationship file"
-git push
-```
-
-## Sanity checks
-
-- `git log --oneline -6` should show your two new commits on top of `ddc09ff Baseline HTML plus CLAUDE Code handoff.`
-- `data/zip-county.json` should be ~several hundred KB with 10–15k entries covering VA/MD/PA/DC/NJ/DE.
-- Opening `index.html` in a browser should still show the mock-data prototype (this handoff doesn't touch frontend behavior).
-
-## What to work on after the push lands
-
-`CLAUDE.md` "What Needs to Be Built Next" is the ordered TODO list — start with item 2 (wire up Serper.dev) since item 1 was just completed.
+All original TODO items are complete. Future work may include:
+- Tuning the Jaccard similarity threshold based on real-world results
+- Adding more noise words to `normalizeForDedup()` if new duplicate patterns emerge
+- Improving organic-to-event parsing accuracy
+- Adding more event types or search query templates
 ````
 
 ---
