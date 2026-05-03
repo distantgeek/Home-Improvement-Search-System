@@ -257,8 +257,9 @@ All 7 original TODO items are complete. The app is fully functional with live Se
 - `LICENSE` — project license
 - `.gitignore` — standard web project ignores
 - `docs/county-coverage.md` — notes on how the served-county list is configured
-- `scripts/build-zip-county.sh` — regenerates `data/zip-county.json` from the U.S. Census ZCTA-to-County relationship file (VA, MD, PA, DC, NJ, DE)
-- `data/zip-county.json` — generated ZIP→county lookup (~12k entries from Census 2020 data)
+- `scripts/build-zip-county.sh` — regenerates `data/zip-county.json` and `data/city-county.json` from Census ZCTA-to-County and ZCTA-to-Place files (VA, MD, PA, DC, NJ, DE)
+- `data/zip-county.json` — ZIP → county lookup (~3,940 entries)
+- `data/city-county.json` — city → county lookup (~3,822 entries)
 - `Dockerfile` + `docker-compose.yml` — httpd:alpine container with GHCR auto-build on push to `main`
 
 ---
@@ -272,7 +273,11 @@ Generated from Census 2020 ZCTA-to-County relationship file. Covers VA, MD, PA, 
 Live `POST https://google.serper.dev/search` calls with API key from UI (localStorage: `hiss.serperApiKey`). Sequential queries with 400ms delay. Organic-to-event parsing for home shows that don't appear in Google's events carousel.
 
 ### 3. ZIP + County enrichment — Done
-Regex ZIP extraction → `data/zip-county.json` lookup → Census Geocoder fallback.
+Three-tier county resolution pipeline:
+- **Tier 1:** Regex ZIP extraction → `data/zip-county.json` lookup (~3,940 entries)
+- **Tier 2:** Scan address/venue/title for known county names via compiled regex (~200 counties across 6 states)
+- **Tier 3:** City name → county lookup via `data/city-county.json` (~3,822 entries, derived from Census ZCTA-to-Place joined with ZCTA-to-County)
+- All tiers run sequentially; first match wins. County name regex is built at startup from the `COUNTIES` constant.
 
 ### 4. Rate limiting & loading UX — Done
 Per-query progress display, stop button, 429 backoff with 30s retry, offline detection, CORS error guidance.
@@ -294,9 +299,11 @@ Inline error banners for: no/invalid API key, 429 rate limit, network offline, z
 ## Handoff Notes
 
 - The repo was originally bootstrapped in an Anthropic-hosted Claude Code sandbox. All sandbox limitations (blocked outbound HTTP, git push proxy) have been resolved since moving to local development.
-- `data/zip-county.json` has been generated from the live Census file.
+- Census data files (`zip-county.json`, `city-county.json`) have been generated from live Census files with correct column indices.
+- GitHub Actions workflow uses `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` to avoid Node.js 20 deprecation warnings.
 - SSH access to the TrueNAS deployment host is configured (`truenas-local` in `~/.ssh/config`, user `assistant` with key `~/.ssh/assistant_ed25519`).
 - Dockge manages stacks at `/mnt/kevbot-store/stacks/` on the TrueNAS host.
+- The `hiss` container runs on port 8888 on the TrueNAS host.
 
 ---
 
@@ -346,7 +353,7 @@ The modal has **Export** and **Import** buttons that round-trip the served list 
   ```json
   ["MD:Frederick County","MD:Carroll County","VA:Fairfax County","DC:District of Columbia"]
   ```
-- **State codes:** `VA`, `MD`, `PA`, `DC`, `NJ` (matching the `state` field in `data/zip-county.json`).
+- **State codes:** `VA`, `MD`, `PA`, `DC`, `NJ`, `DE` (matching the `state` field in `data/zip-county.json`).
 - **County name format:** exact string from the Census relationship file's `NAMELSAD_COUNTY_20` column (e.g. `"Frederick County"`, not `"Frederick"`). DC is stored as `"DC:District of Columbia"`.
 - **Empty / missing key:** treat as an empty array. Never seed defaults.
 
@@ -380,9 +387,9 @@ When enriching a Serper result into a table row, the frontend decides the served
 
 ## Behavior notes
 
-- The full county master list for VA, MD, PA, DC, and NJ is pre-loaded in `index.html`. The coordinator only chooses which of those to mark as served.
+- The full county master list for VA, MD, PA, DC, NJ, and DE is pre-loaded in `index.html`. The coordinator only chooses which of those to mark as served.
 - Changes in the modal take effect immediately — existing result rows re-evaluate their served/unserved badge without a page reload. Implement this by keeping the served set in a reactive variable and re-rendering on change.
-- ZIP → county resolution uses `data/zip-county.json` (generated from the U.S. Census ZCTA-to-County relationship file; see `scripts/build-zip-county.sh`).
+- County resolution uses a three-tier pipeline: ZIP lookup (`data/zip-county.json`), county name scanning (regex built from `COUNTIES` constant), and city lookup (`data/city-county.json`). See `scripts/build-zip-county.sh` for data generation.
 ````
 
 ### `scripts/build-zip-county.sh` (new — also `mkdir -p scripts`, then `chmod +x` after writing)
@@ -469,6 +476,7 @@ All original TODO items are complete. Future work may include:
 - Adding more noise words to `normalizeForDedup()` if new duplicate patterns emerge
 - Improving organic-to-event parsing accuracy
 - Adding more event types or search query templates
+- Verifying county resolution accuracy with live search results and adjusting tier priorities if needed
 ````
 
 ---
