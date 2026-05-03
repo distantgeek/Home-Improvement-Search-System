@@ -2,6 +2,7 @@ FROM httpd:alpine
 
 COPY index.html /usr/local/apache2/htdocs/index.html
 COPY data/zip-county.json /usr/local/apache2/htdocs/data/zip-county.json
+COPY data/city-county.json /usr/local/apache2/htdocs/data/city-county.json
 
 EXPOSE 80
 

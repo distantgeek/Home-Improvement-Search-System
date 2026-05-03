@@ -1071,6 +1071,9 @@ let servedSet      = new Set();
 let sortCol        = 'date';
 let sortDir        = 1;
 let zipCounty      = null;
+let cityCounty     = null;
+let countyNameRe   = null;
+let geocoderCache  = {};
 let searchRunning  = false;
 let stopRequested  = false;
 
@@ -1109,6 +1112,22 @@ async function loadZipCounty() {
     const r = await fetch('data/zip-county.json');
     if (r.ok) zipCounty = await r.json();
   } catch (_) {}
+  try {
+    const r = await fetch('data/city-county.json');
+    if (r.ok) cityCounty = await r.json();
+  } catch (_) {}
+  buildCountyNameRegex();
+}
+
+function buildCountyNameRegex() {
+  const names = [];
+  for (const state of STATE_ORDER) {
+    for (const county of COUNTIES[state]) {
+      names.push(county.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    }
+  }
+  names.sort((a, b) => b.length - a.length);
+  countyNameRe = new RegExp('\\b(' + names.join('|') + ')\\b', 'i');
 }
 
 function setDefaultDates() {
@@ -1652,8 +1671,9 @@ function normalizeEvent(evt, sourceQuery, searchState) {
 
   let county = '';
   let state  = searchState || '';
+
+  // ── Tier 1: ZIP → county lookup ──
   if (zip && zipCounty && zipCounty[zip]) {
-    // Census NAMELSAD includes "County" suffix — strip to match COUNTIES array
     const raw = zipCounty[zip].county;
     county = raw
       .replace(/ County$/i, '')
@@ -1662,7 +1682,72 @@ function normalizeEvent(evt, sourceQuery, searchState) {
     state = zipCounty[zip].state;
   }
 
-  // City: strip trailing "ST ZIP" then remove venue prefix if present
+  // ── Tier 2: Scan address/venue/title for known county names ──
+  if (!county && countyNameRe) {
+    const scanText = `${addrFull} ${venue} ${name}`;
+    const m = scanText.match(countyNameRe);
+    if (m) {
+      const matched = m[1];
+      // Find which state this county belongs to
+      for (const s of STATE_ORDER) {
+        if (COUNTIES[s].some(c => c.toLowerCase() === matched.toLowerCase())) {
+          county = matched;
+          // Normalize "Alexandria City" → "Alexandria City" (keep City suffix for VA)
+          if (!/ City$/i.test(county) && !/ County$/i.test(county) && county !== 'District of Columbia') {
+            county = county + ' County';
+          }
+          // Strip " County" suffix for consistency with COUNTIES array
+          county = county.replace(/ County$/i, '').replace(/ city$/i, ' City');
+          state = s;
+          break;
+        }
+      }
+    }
+  }
+
+  // ── Tier 3: City+state → county lookup ──
+  if (!county && cityCounty) {
+    // Extract city from address: "Venue, City, ST ZIP" → City
+    const cityLine = addrFull
+      .replace(/,?\s*[A-Z]{2}\s*\d{5}(-\d{4})?\s*$/, '')
+      .replace(/,\s*$/, '')
+      .trim();
+    const city = (venue && cityLine.startsWith(venue))
+      ? cityLine.slice(venue.length).replace(/^,\s*/, '').trim()
+      : cityLine;
+
+    if (city) {
+      // Try with search state first, then all states
+      const tryStates = state ? [state] : STATE_ORDER;
+      for (const s of tryStates) {
+        const key = `${s}:${city}`;
+        if (cityCounty[key]) {
+          county = cityCounty[key].county
+            .replace(/ County$/i, '')
+            .replace(/ city$/i, ' City')
+            .trim();
+          state = s;
+          break;
+        }
+      }
+      // If not found with search state, try all states
+      if (!county) {
+        for (const s of STATE_ORDER) {
+          const key = `${s}:${city}`;
+          if (cityCounty[key]) {
+            county = cityCounty[key].county
+              .replace(/ County$/i, '')
+              .replace(/ city$/i, ' City')
+              .trim();
+            state = s;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // ── City: strip trailing "ST ZIP" then remove venue prefix if present ──
   const cityLine = addrFull
     .replace(/,?\s*[A-Z]{2}\s*\d{5}(-\d{4})?\s*$/, '')
     .replace(/,\s*$/, '')
