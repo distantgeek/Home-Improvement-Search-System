@@ -249,9 +249,9 @@ CSV export includes all columns.
 
 ## Current State of the Repo
 
-All 7 original TODO items are complete. The app is fully functional with live Serper.dev API calls.
+All 7 original TODO items are complete. The app is fully functional with live Serper.dev API calls, multi-tier county resolution, and fuzzy dedup with alternate URL tracking.
 
-- `index.html` — complete app with live Serper API, fuzzy dedup, expandable alternate URLs, served counties modal, CSV export, error handling, rate limiting, and stop button
+- `index.html` — complete app with live Serper API, multi-tier county resolution, fuzzy dedup with expandable alternate URLs, served counties modal with filter toggle, CSV export, error handling, rate limiting, and stop button
 - `CLAUDE.md` — this file
 - `README.md` — setup and usage instructions
 - `LICENSE` — project license
@@ -267,29 +267,30 @@ All 7 original TODO items are complete. The app is fully functional with live Se
 ## Completed Features
 
 ### 1. `data/zip-county.json` — Done
-Generated from Census 2020 ZCTA-to-County relationship file. Covers VA, MD, PA, DC, NJ, DE.
+Generated from Census 2020 ZCTA-to-County relationship file. Covers VA, MD, PA, DC, NJ, DE. ~3,940 entries.
 
 ### 2. Serper.dev API — Done
-Live `POST https://google.serper.dev/search` calls with API key from UI (localStorage: `hiss.serperApiKey`). Sequential queries with 400ms delay. Organic-to-event parsing for home shows that don't appear in Google's events carousel.
+Live `POST https://google.serper.dev/search` calls with API key from UI (localStorage: `hiss.serperApiKey`). Sequential queries with 400ms delay. Organic-to-event parsing for home shows that don't appear in Google's events carousel. Supplemental `site:eventbrite.com` and `site:facebook.com/events` queries available.
 
-### 3. ZIP + County enrichment — Done
-Three-tier county resolution pipeline:
-- **Tier 1:** Regex ZIP extraction → `data/zip-county.json` lookup (~3,940 entries)
-- **Tier 2:** Scan address/venue/title for known county names via compiled regex (~200 counties across 6 states)
-- **Tier 3:** City name → county lookup via `data/city-county.json` (~3,822 entries, derived from Census ZCTA-to-Place joined with ZCTA-to-County)
-- All tiers run sequentially; first match wins. County name regex is built at startup from the `COUNTIES` constant.
+### 3. Multi-Tier County Resolution — Done
+Three-tier pipeline ensures accurate county data for service area filtering:
+- **Tier 1:** Regex ZIP extraction → `data/zip-county.json` lookup (~3,940 entries). Normalizes Census names (e.g. "Alexandria city" → "Alexandria City").
+- **Tier 2:** County name scanning — compiled regex of ~200 county names across 6 states scans address, venue, and title text. First match wins.
+- **Tier 3:** City → county lookup via `data/city-county.json` (~3,822 entries, derived from Census ZCTA-to-Place joined with ZCTA-to-County). Tries search state first, then all states as fallback.
+- All tiers run sequentially in `normalizeEvent()`; first successful match wins. County name regex (`countyNameRe`) is built at startup from the `COUNTIES` constant.
+- Service area filter now shows far fewer gray/unknown indicators because the 3-tier resolution catches events that lack ZIP codes or have ambiguous addresses.
 
 ### 4. Rate limiting & loading UX — Done
 Per-query progress display, stop button, 429 backoff with 30s retry, offline detection, CORS error guidance.
 
 ### 5. Served Counties modal — Done
-Checkbox UI grouped by state, persisted to `hiss.servedCounties` in localStorage. Import/Export as JSON. Green/red/gray indicators with filter toggle.
+Checkbox UI grouped by state, persisted to `hiss.servedCounties` in localStorage. Import/Export as JSON. Green/red/gray indicators with filter toggle (All Results / Served Only / Not Served). Changes take effect immediately on existing results without page reload.
 
 ### 6. Deduplication logic — Done (enhanced)
 Two-tier dedup:
-- **Tier 1** (during search): Exact key match on normalized name + year + locality. Smart hyphen handling to keep the event-keyword side.
-- **Tier 2** (post-search): Fuzzy merge via Jaccard token similarity (60% threshold) within date+location buckets. Strips state names, filler words, venue fragments before comparing.
-- Merged rows keep the best source URL as primary and accumulate alternates in `altUrls[]`. Expandable rows in the UI show alternate URLs. CSV export includes an "Alternate URLs" column.
+- **Tier 1** (during search): Exact key match on normalized name + year + locality. Smart hyphen handling to keep the event-keyword side. Source priority (google > eventbrite > facebook) with pageScore tiebreaker.
+- **Tier 2** (post-search): Fuzzy merge via Jaccard token similarity (60% threshold) within date+location buckets. `normalizeForDedup()` strips state names, filler words ("annual", "visit", "official"), venue fragments ("fairgrounds", "convention center"), and years before comparing.
+- Merged rows keep the best source URL as primary and accumulate alternates in `altUrls[]`. Expandable rows in the UI show alternate URLs with source labels. CSV export includes an "Alternate URLs" column.
 
 ### 7. Error handling — Done
 Inline error banners for: no/invalid API key, 429 rate limit, network offline, zero results, CORS/zip-county fetch failure.
