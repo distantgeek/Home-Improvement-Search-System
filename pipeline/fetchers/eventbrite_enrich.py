@@ -26,11 +26,11 @@ _ALLOWED_HOSTS = frozenset({"www.eventbrite.com", "eventbrite.com"})
 # Matches /e/<optional-slug>-<id> where id is 5–20 digits
 _ID_RE = re.compile(r"/e/(?:[^/?#]*?-)?(\d{5,20})(?:[/?#]|$)")
 
-# Generic words that carry no identity signal for name-matching
+# Pure function words only — domain terms like "home", "show", "fair" are
+# intentionally kept so short event names ("Home Show", "County Fair") still
+# produce tokens that can match. See _validate_response for the empty-set fallback.
 _STOP_WORDS = frozenset({
     "the", "a", "an", "of", "and", "in", "at", "for", "to", "with",
-    "home", "show", "fair", "annual", "festival", "event", "expo",
-    "county", "state", "garden", "craft", "art", "improvement",
 })
 
 _MAX_WORKERS = 5  # conservative — free tier allows 2 000 calls/hour
@@ -95,7 +95,11 @@ def _validate_response(raw: dict, expected_id: str, event: EventItem) -> bool:
         return False
 
     api_name = (raw.get("name") or {}).get("text", "")
-    if not (_name_tokens(api_name) & _name_tokens(event.name)):
+    api_tokens = _name_tokens(api_name)
+    local_tokens = _name_tokens(event.name)
+    # When both names reduce to empty token sets (very short/generic names) the
+    # ID match above is sufficient — don't reject on a vacuous intersection check.
+    if api_tokens and local_tokens and not (api_tokens & local_tokens):
         logger.warning(
             "Eventbrite name mismatch — skipping enrichment for event %s "
             "(api=%r local=%r)",
@@ -161,7 +165,9 @@ def _enrich_one(event: EventItem, event_id: str, api_key: str) -> bool:
         logger.warning("Eventbrite enrich request failed for %s: %s", event_id, exc)
         return False
 
-    if resp.status_code in (403, 404):
+    if resp.status_code in (401, 403, 404):
+        # 401 = token lacks retrieval scope (free tier may not include it)
+        # 403 = private event  404 = deleted/unpublished
         logger.debug(
             "Eventbrite event %s unavailable (HTTP %d)", event_id, resp.status_code
         )

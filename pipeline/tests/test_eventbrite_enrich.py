@@ -132,10 +132,17 @@ class TestValidateResponse:
         raw = _api_response(name="The 45th Annual Frederick County Home and Garden Show 2026")
         assert _validate_response(raw, "123456789", event) is True
 
-    def test_rejects_only_stop_word_overlap(self):
-        # "home" and "show" are in _STOP_WORDS; no signal
+    def test_accepts_when_both_token_sets_empty(self):
+        # Very short/generic names produce no tokens — ID match is sufficient,
+        # so we accept rather than reject on a vacuous intersection check.
         event = _make_event(name="Home Show")
         raw = _api_response(name="Home Show")
+        assert _validate_response(raw, "123456789", event) is True
+
+    def test_rejects_when_tokens_exist_but_no_overlap(self):
+        # Both sides have tokens but nothing in common — genuine mismatch
+        event = _make_event(name="Blueberry Picking Festival Annapolis")
+        raw = _api_response(name="Automobile Restoration Convention Richmond")
         assert _validate_response(raw, "123456789", event) is False
 
     def test_rejects_missing_id_field(self):
@@ -234,6 +241,14 @@ class TestEnrichFromUrls:
     def test_skips_403(self):
         event = _make_event()
         _register("123456789", {}, status=403)
+        count = enrich_from_urls([event], "test-key")
+        assert count == 0
+
+    @responses_lib.activate
+    def test_skips_401(self):
+        # Free-tier tokens lack retrieval scope — should be silent, not a warning
+        event = _make_event()
+        _register("123456789", {}, status=401)
         count = enrich_from_urls([event], "test-key")
         assert count == 0
 

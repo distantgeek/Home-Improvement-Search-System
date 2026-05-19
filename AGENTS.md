@@ -18,8 +18,10 @@ FestivalNet.com — a craft/art-vendor platform with predatory per-event pricing
 hand-pruning results by county. That workflow is wrong for the use case and not scalable.
 
 **The solution (current architecture):** A background Python pipeline pre-fetches events
-from Serper.dev (Google Events) and the Eventbrite API, normalizes and deduplicates
-them, stores them in SQLite, and indexes them in Meilisearch. A static HTML frontend
+from Serper.dev (Google Events), normalizes and deduplicates them, stores them in SQLite,
+and indexes them in Meilisearch. Events with Eventbrite URLs found via Serper are
+additionally enriched with structured address data from the Eventbrite Event Retrieval
+API (when the API key has the required scope — see Section 8). A static HTML frontend
 (currently still calling Serper directly — Phase 1 will change this) lets the coordinator
 filter by served counties and export results to CSV.
 
@@ -44,17 +46,22 @@ browser. No terminal, no installs, no configuration files to edit.
 
 ### Docker networks
 
-- `proxy` (external, NPM-managed) — `hiss` frontend only
+The repo's `docker-compose.yml` places `hiss` on an external `proxy` network (NPM
+Docker network) for environments where NPM and the stack share a Docker overlay.
+The **TrueNAS deployment** (`compose.yaml` on the host) uses `ports: "8888:80"` instead,
+because NPM routes `hiss.distantgeek.net → 192.168.2.148:8888` by host IP — the proxy
+network is not used there.
+
 - `internal` (bridge, this stack) — `hiss-meilisearch`, `hiss-pipeline`, `hiss-datasette`
 
 `hiss-meilisearch` port 7700 is exposed directly on the TrueNAS host so the browser can
 query Meilisearch without going through NPM. `hiss-datasette` is intentionally not on
-the proxy network (no built-in auth; raw SQL exposure risk).
+any external network (no built-in auth; raw SQL exposure risk).
 
 ### Data flow (pipeline run)
 
 ```
-Eventbrite Discovery API (Tier 1, optional)
+Eventbrite Discovery API (Tier 1, optional — returns 404 on free tier)
          │
          ├──→ normalize_event() / parse_dates() / infer_event_type()
          │
@@ -64,6 +71,11 @@ Serper.dev Google Events (Tier 2, required)
          │
          └──→ normalize_event()
                     │
+                    ▼
+              eb_enrich.enrich_from_urls()  ← Eventbrite URL enrichment:
+                    │   events whose primary_url/sources point to Eventbrite
+                    │   get structured venue/city/state/ZIP from /v3/events/{id}/
+                    │   (requires Eventbrite key with retrieval scope; skipped on 401/403/404)
                     ▼
               enrich()  ← three-tier county/ZIP resolution
                     │
@@ -121,7 +133,8 @@ home-improvement-search-system/
 │   ├── fetchers/
 │   │   ├── __init__.py
 │   │   ├── serper.py                # Tier 2: Serper.dev + organics fallback
-│   │   └── eventbrite.py            # Tier 1: Eventbrite Discovery API (optional)
+│   │   ├── eventbrite.py            # Tier 1: Eventbrite Discovery API (optional, enterprise-only)
+│   │   └── eventbrite_enrich.py     # URL enrichment: /v3/events/{id}/ for Eventbrite-linked events
 │   ├── spiders/
 │   │   └── .gitkeep                 # Phase 2 placeholder — Scrapy curated crawlers
 │   └── tests/
@@ -133,6 +146,7 @@ home-improvement-search-system/
 │       ├── test_sync.py
 │       ├── test_serper.py
 │       ├── test_eventbrite.py
+│       ├── test_eventbrite_enrich.py
 │       └── fixtures/
 │           ├── serper_events_response.json
 │           ├── serper_organic_response.json
@@ -151,18 +165,19 @@ home-improvement-search-system/
 
 ## 4. Current State
 
-### Phase 0 — complete
+### Phase 0 — complete and deployed
 
-The full pipeline is implemented, committed to `main`, and ready to deploy.
-**89/89 tests pass** (`python3 -m pytest pipeline/tests/`).
+The full pipeline is implemented, deployed on TrueNAS, and running.
+**126/126 tests pass** (`python3 -m pytest pipeline/tests/`).
 
 Completed work:
-- `pipeline/` package — all modules implemented
+- `pipeline/` package — all modules implemented, including `eventbrite_enrich.py`
 - `Dockerfile.pipeline` — python:3.12-slim, non-root `pipeline` user (UID 1000)
 - `docker-compose.yml` — four services with internal network, log rotation, healthcheck
 - `.env.example` — template with all required variables
 - `.github/workflows/pipeline-publish.yml` — CI auto-build on relevant path changes
 - `data/zip-county.json` + `data/city-county.json` — Census-derived lookup tables
+- Deployed and running on TrueNAS at `192.168.2.148` — 980+ events indexed in Meilisearch
 
 The existing frontend (`index.html`) continues to call Serper.dev directly — Phase 0
 is purely additive. The coordinator's workflow is unchanged while the pipeline runs
@@ -186,17 +201,37 @@ enrich → dedup → store → sync chain.
 ### Target host
 
 - **IP:** `192.168.2.148`
-- **SSH:** `ssh assistant@192.168.2.148` (key: `~/.ssh/assistant_ed25519`, alias `truenas-local`)
-- **Dockge stack path:** `/mnt/kevbot-store/stacks/hiss/`
+- **SSH:** `ssh truenas` (alias in `~/.ssh/config`; user `assistant`, key `~/.ssh/id_ed25519_truenas`)
+- **Stack path:** `/mnt/kevbot-store/stacks/home-improvement-show-search/` (requires `sudo` to read/write)
+- **Docker:** `sudo docker ...` — `assistant` is not in the docker group
 
-### First deployment
+### Stack is already deployed
 
-1. Copy `docker-compose.yml` and `.env.example` to `/mnt/kevbot-store/stacks/hiss/` on the host.
-2. Create `/mnt/kevbot-store/stacks/hiss/.env` from `.env.example`. Set a real value for
-   `MEILI_MASTER_KEY` (at least 16 chars, not the placeholder). Set `SERPER_API_KEY`.
-   Set `NPM_NETWORK_NAME` to your NPM external Docker network name (`docker network ls`).
-3. Set `.env` permissions: `chmod 600 /mnt/kevbot-store/stacks/hiss/.env`
-4. In Dockge, create a new stack named `hiss` pointing to that directory and deploy.
+The stack is live. To manage it:
+
+```bash
+# Check status
+ssh truenas "sudo docker compose -f /mnt/kevbot-store/stacks/home-improvement-show-search/compose.yaml ps"
+
+# View pipeline logs
+ssh truenas "sudo docker logs hiss-pipeline --tail 40"
+
+# Pull new image and restart after a push to main
+ssh truenas "sudo docker compose -f /mnt/kevbot-store/stacks/home-improvement-show-search/compose.yaml pull hiss-pipeline && sudo docker compose -f /mnt/kevbot-store/stacks/home-improvement-show-search/compose.yaml up -d hiss-pipeline"
+```
+
+### First deployment (reference — already done)
+
+1. Copy `compose.yaml` and `.env` to `/mnt/kevbot-store/stacks/home-improvement-show-search/` on the host.
+   Note: The TrueNAS `compose.yaml` uses `ports: "8888:80"` on the `hiss` service (not the proxy
+   network) because NPM routes `hiss.distantgeek.net → 192.168.2.148:8888` by host IP.
+2. Create `.env` from `.env.example`. Set `MEILI_MASTER_KEY`, `SERPER_API_KEY`, `EVENTBRITE_API_KEY`.
+3. Set `.env` permissions: `chmod 600 .env`
+4. Fix volume permissions so the pipeline container (UID 1000) can write to `/data`:
+   ```bash
+   sudo docker run --rm -v home-improvement-show-search_pipeline_data:/data busybox chown -R 1000:1000 /data
+   ```
+5. Start: `sudo docker compose -f compose.yaml up -d`
 5. After Meilisearch starts, create the search-only key:
 
 ```bash
@@ -244,11 +279,14 @@ curl http://192.168.2.148:7700/indexes/events/stats
 ```bash
 cd /path/to/home-improvement-search-system
 python3 -m pytest pipeline/tests/
-# Expected: 89 passed
+# Expected: 126 passed
 ```
 
-Tests use `unittest.mock` to patch `requests.post`/`requests.get` — no live API calls.
-The `tmp_db` fixture in `conftest.py` provides an in-memory SQLite database.
+Tests use the `responses` library and `unittest.mock` to intercept HTTP calls — no live
+API calls. The `tmp_db` fixture in `conftest.py` provides a file-based SQLite database
+(not `:memory:`, for WAL compatibility). Note: `@responses_lib.activate` must be applied
+to individual test methods, not classes — the class decorator silently drops tests in
+Python 3.14.
 
 ### Dry-run mode
 
@@ -338,8 +376,37 @@ Tier 1 structured source. Uses the Eventbrite Discovery API (`/v3/events/search/
 lat/lng centroid + 100mi radius for each target state, paginating until `has_more_items`
 is false. Returns structured venue, city, ZIP, and date data directly in the API response
 (no address parsing needed). On HTTP 401/403, logs a warning and returns an empty list
-without aborting — the Discovery API may require enterprise access and is treated as
-optional. All Eventbrite events get `page_score=2` (highest priority in dedup).
+without aborting — the Discovery API requires enterprise access and is treated as
+optional (currently returns 404 on the free tier; Tier 2 runs regardless). All Eventbrite
+events get `page_score=2` (highest priority in dedup).
+
+### `pipeline/fetchers/eventbrite_enrich.py`
+
+Post-fetch URL enrichment. Runs after all fetchers complete but **before** `enrich()` so
+that ZIP/venue data from Eventbrite flows into the county resolution pipeline. Scans each
+event's `primary_url` and `sources[]` for valid Eventbrite URLs, validates the URL before
+calling the API, then validates the response before applying changes.
+
+**Pre-API URL validation** (`extract_eventbrite_id`): rejects non-`https` schemes,
+non-`eventbrite.com`/`www.eventbrite.com` hosts (prevents lookalike injection), paths
+that don't match `/e/<slug>-<id>`, and IDs outside 5–20 digits.
+
+**Response validation** (`_validate_response`): rejects ID mismatches (response ID must
+equal requested ID), cancelled events, and responses with no name-token overlap (generic
+names with zero tokens on both sides are accepted — ID match is sufficient in that case).
+
+**Field update** (`_apply_enrichment`): only overwrites non-empty values so a partial
+Eventbrite response can't blank fields already populated from Serper. Rebuilds `addr_full`
+so `Enricher.enrich()` has the best possible input for the three-tier county resolution.
+
+Runs up to 5 concurrent requests (ThreadPoolExecutor). Each worker creates its own
+`requests.Session` for thread safety. Deduplicates by Eventbrite event ID so the same
+event is never fetched twice even if it appears in multiple Serper results.
+
+**Current limitation:** The free Eventbrite OAuth token returns HTTP 401 for the
+retrieval endpoint — the token may need the `event_read:private` scope or a higher
+access tier. 401/403/404 are handled silently (debug-level log only); the pipeline
+continues normally with zero enriched events.
 
 ### `pipeline/normalize.py`
 
@@ -426,6 +493,8 @@ city-to-county lookups. Edit here when adding new states or event types.
 |---|---|
 | MEILI_URL scheme validation | Startup rejects any URL not starting with `http://` or `https://` — prevents SSRF via env var injection |
 | MEILI_MASTER_KEY placeholder check | Startup rejects key containing `"change-me"` — prevents accidental deploy with the example value |
+| Eventbrite URL validation | `extract_eventbrite_id()` validates scheme (`https` only), host (exact match on `eventbrite.com`/`www.eventbrite.com`), path pattern, and ID format before calling the API — prevents lookalike-host injection and API calls on malformed URLs |
+| Eventbrite response ID check | API response `id` field must match the requested ID; mismatches are logged and the enrichment is skipped — prevents applying data from the wrong event |
 | `contact` PII exclusion | `sync.py._row_to_meili_doc()` omits `contact` — scraped emails/phones stay in SQLite only |
 | Datasette internal-only network | `hiss-datasette` has no `ports:` mapping and is not on the proxy network — access requires SSH tunnel |
 | Docker log rotation | `json-file` driver with `max-size: 10m` / `max-file: 3` on `hiss-pipeline` and `hiss-meilisearch` |
@@ -510,8 +579,10 @@ time or sourced from a `<script>` config block.
 - **Meilisearch document fields are camelCase.** The existing `renderResults()` JS reads
   `startDate`, `countyFull`, `sourceType`, etc. Do not change the field names in
   `sync.py._row_to_meili_doc()` without updating the frontend to match.
-- **Eventbrite Tier 1 is optional.** The Discovery API may require enterprise access.
-  If `EVENTBRITE_API_KEY` is absent or the API returns 401/403, the pipeline continues
-  with Serper.dev only — this is not an error.
+- **Eventbrite is a best-effort enrichment layer.** The Discovery API (Tier 1) requires
+  enterprise access and currently returns 404 on the free tier. The URL Retrieval API
+  (used by `eventbrite_enrich.py`) requires a token with retrieval scope — the current
+  free token returns 401. Both are handled silently; the pipeline always continues with
+  Serper.dev as the sole data source. Do not treat Eventbrite failures as blocking errors.
 - **Do not start Phase 2 (Scrapy) without explicit instruction.** `pipeline/spiders/`
   exists as a placeholder only.
