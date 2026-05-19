@@ -165,28 +165,37 @@ home-improvement-search-system/
 
 ## 4. Current State
 
-### Phase 0 — complete and deployed
+### Phase 0 — COMPLETE ✓
 
-The full pipeline is implemented, deployed on TrueNAS, and running.
-**126/126 tests pass** (`python3 -m pytest pipeline/tests/`).
+All four services deployed and healthy on TrueNAS (`192.168.2.148`).
+**127/127 tests pass** (`python3 -m pytest pipeline/tests/`).
+
+| Service | State |
+|---|---|
+| `hiss` (frontend, port 8888) | Up — serving `index.html` via httpd:alpine |
+| `hiss-meilisearch` (port 7700) | Up + healthy — 980+ events indexed |
+| `hiss-pipeline` | Up — last ran successfully, next run Sunday 3am |
+| `hiss-datasette` (internal, port 8001) | Up — immutable mode, SSH tunnel for access |
 
 Completed work:
 - `pipeline/` package — all modules implemented, including `eventbrite_enrich.py`
 - `Dockerfile.pipeline` — python:3.12-slim, non-root `pipeline` user (UID 1000)
-- `docker-compose.yml` — four services with internal network, log rotation, healthcheck
+- `docker-compose.yml` — four services, internal network, log rotation, healthcheck
 - `.env.example` — template with all required variables
 - `.github/workflows/pipeline-publish.yml` — CI auto-build on relevant path changes
 - `data/zip-county.json` + `data/city-county.json` — Census-derived lookup tables
-- Deployed and running on TrueNAS at `192.168.2.148` — 980+ events indexed in Meilisearch
+- `MEILI_SEARCH_KEY` — Meilisearch auto-generated default search-only key; value is
+  in `.env` on TrueNAS. Safe to embed in frontend HTML (search-only, cannot write).
+- Volume permissions fixed (`pipeline_data` chowned to UID 1000)
+- Datasette opened in immutable mode (`-i`) — no WAL lock file writes needed
 
-The existing frontend (`index.html`) continues to call Serper.dev directly — Phase 0
-is purely additive. The coordinator's workflow is unchanged while the pipeline runs
-silently in the background.
+The existing frontend (`index.html`) still calls Serper.dev directly from the browser.
+Phase 0 was purely additive; the coordinator's workflow is unchanged.
 
-### Phase 1 — not started
+### Phase 1 — NEXT (ready to start)
 
-Modify `index.html` to query Meilisearch instead of calling Serper.dev directly.
-See section 10 for the complete spec.
+Migrate `index.html` to query Meilisearch instead of Serper.dev.
+**See Section 10 for the complete spec and kickoff checklist.**
 
 ### Phase 2 — not started
 
@@ -220,55 +229,52 @@ ssh truenas "sudo docker logs hiss-pipeline --tail 40"
 ssh truenas "sudo docker compose -f /mnt/kevbot-store/stacks/home-improvement-show-search/compose.yaml pull hiss-pipeline && sudo docker compose -f /mnt/kevbot-store/stacks/home-improvement-show-search/compose.yaml up -d hiss-pipeline"
 ```
 
-### First deployment (reference — already done)
-
-1. Copy `compose.yaml` and `.env` to `/mnt/kevbot-store/stacks/home-improvement-show-search/` on the host.
-   Note: The TrueNAS `compose.yaml` uses `ports: "8888:80"` on the `hiss` service (not the proxy
-   network) because NPM routes `hiss.distantgeek.net → 192.168.2.148:8888` by host IP.
-2. Create `.env` from `.env.example`. Set `MEILI_MASTER_KEY`, `SERPER_API_KEY`, `EVENTBRITE_API_KEY`.
-3. Set `.env` permissions: `chmod 600 .env`
-4. Fix volume permissions so the pipeline container (UID 1000) can write to `/data`:
-   ```bash
-   sudo docker run --rm -v home-improvement-show-search_pipeline_data:/data busybox chown -R 1000:1000 /data
-   ```
-5. Start: `sudo docker compose -f compose.yaml up -d`
-5. After Meilisearch starts, create the search-only key:
+### Updating images after a push to main
 
 ```bash
-curl -X POST http://192.168.2.148:7700/keys \
-  -H "Authorization: Bearer $MEILI_MASTER_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"HISS Browser Search Key","actions":["search"],"indexes":["events"],"expiresAt":null}'
+# Pull and restart a specific service (e.g. after a pipeline code change)
+ssh truenas "sudo docker compose -f /mnt/kevbot-store/stacks/home-improvement-show-search/compose.yaml pull hiss-pipeline && sudo docker compose -f /mnt/kevbot-store/stacks/home-improvement-show-search/compose.yaml up -d hiss-pipeline"
+
+# Pull and restart the frontend after index.html changes
+ssh truenas "sudo docker compose -f /mnt/kevbot-store/stacks/home-improvement-show-search/compose.yaml pull hiss && sudo docker compose -f /mnt/kevbot-store/stacks/home-improvement-show-search/compose.yaml up -d hiss"
 ```
 
-Copy the returned `"key"` value into `MEILI_SEARCH_KEY` in `.env`, then redeploy
-`hiss-pipeline` so it has the key available for Phase 1 frontend config.
-
-### Updating images
-
-After a push to `main` that triggers GitHub Actions:
-
-1. In Dockge, pull the updated image for the relevant service.
-2. Recreate the container (Dockge "Update" button or `docker compose pull && docker compose up -d`).
-
-The pipeline image auto-builds when `pipeline/**`, `data/**`, or `Dockerfile.pipeline`
-changes. The frontend image auto-builds on any push to `main`.
+The pipeline image rebuilds when `pipeline/**`, `data/**`, or `Dockerfile.pipeline` change.
+The frontend image rebuilds on any push to `main` (watches `Dockerfile` and `index.html`).
 
 ### Datasette access (debug only)
 
-Datasette is internal-only. SSH tunnel to browse `hiss.db`:
+Datasette is internal-only (no host port binding). SSH tunnel to browse `hiss.db`:
 
 ```bash
-ssh -L 8001:hiss-datasette:8001 assistant@192.168.2.148
+ssh -L 8001:localhost:8001 truenas -N &
 # then open http://localhost:8001/ in a browser
+# kill %1 when done
 ```
 
-### Verify pipeline ran
+Note: Datasette runs in immutable mode (`-i /data/hiss.db`) — it cannot write to the
+database. This prevents lock-file conflicts with the pipeline's WAL-mode SQLite writes.
+
+### Verify Meilisearch index
+
+Meilisearch requires auth — use the master key for admin queries:
 
 ```bash
-curl http://192.168.2.148:7700/indexes/events/stats
-# should show numberOfDocuments > 0 after the first run completes
+MEILI_KEY=$(ssh truenas "sudo grep MEILI_MASTER_KEY /mnt/kevbot-store/stacks/home-improvement-show-search/.env | cut -d= -f2")
+ssh truenas "curl -s http://192.168.2.148:7700/indexes/events/stats -H \"Authorization: Bearer $MEILI_KEY\""
+# numberOfDocuments should be 950–1050 after a successful pipeline run
 ```
+
+### First deployment (reference — already done; skip this section)
+
+1. Copy `compose.yaml` + `.env` to `/mnt/kevbot-store/stacks/home-improvement-show-search/`.
+   The TrueNAS `compose.yaml` uses `ports: "8888:80"` on `hiss` (NPM routes by host IP).
+2. Set `MEILI_MASTER_KEY`, `SERPER_API_KEY`, `EVENTBRITE_API_KEY` in `.env`. `chmod 600 .env`.
+3. Fix volume ownership: `sudo docker run --rm -v home-improvement-show-search_pipeline_data:/data busybox chown -R 1000:1000 /data`
+4. Start: `sudo docker compose -f compose.yaml up -d`
+5. `MEILI_SEARCH_KEY` is auto-generated by Meilisearch on first start as "Default Search API Key".
+   Retrieve it: `curl -s http://192.168.2.148:7700/keys -H "Authorization: Bearer $MEILI_MASTER_KEY"`
+   Add it to `.env` for Phase 1 frontend embedding.
 
 ---
 
@@ -514,54 +520,160 @@ city-to-county lookups. Edit here when adding new states or event types.
 
 ## 10. Phase 1: Frontend Migration
 
+> **Starting Phase 1?** Read this section top-to-bottom before touching any code.
+> Everything you need is here — no discovery work required.
+
 **Goal:** Replace the Serper.dev call path in `index.html` with Meilisearch queries.
+The backend already has the data. The frontend just needs to ask Meilisearch instead of
+calling Serper directly from the browser.
 
-### What to remove
+### Credentials and endpoints
 
-These JS functions call Serper directly and should be removed:
-`callSerper`, `organicsToEvents`, `buildAllQueries`, `buildQueriesForState`,
-`normalizeEvent`, `parseDates`, `inferEventType`, `dedupeKey`, `normalizeForDedup`,
-`jaccardSimilarity`, `fuzzyMergeResults`, `enrich`.
+| Item | Value |
+|---|---|
+| Meilisearch host | `http://192.168.2.148:7700` |
+| Search-only key | `REDACTED_MEILI_KEY` |
+| Search endpoint | `POST http://192.168.2.148:7700/indexes/events/search` |
+| Stats endpoint | `GET http://192.168.2.148:7700/indexes/events/stats` |
+| Auth header | `Authorization: Bearer REDACTED_MEILI_KEY` |
 
-Also remove: the Serper API key input field and the per-query progress display.
+The search-only key has `actions: ["search"]` only — it cannot write, delete, or
+configure the index. Safe to hardcode in `index.html`.
 
-### What to add
+### Meilisearch document schema
 
-- `searchMeilisearch(query, filters)` — calls `POST http://192.168.2.148:7700/indexes/events/search`
-  with `Authorization: Bearer <MEILI_SEARCH_KEY>`. The search-only key is safe to embed
-  in frontend JS (it can only read, not write).
-- A "last updated" timestamp sourced from `GET /indexes/events/stats` (`lastUpdate`
-  field) replacing the API key input.
+Every document in the `events` index has these fields (all camelCase — the existing
+`renderResults()` JS already uses these names):
 
-### What to keep unchanged
+```
+eventId        dedupeKey      name           startDate      endDate
+venue          city           state          county         countyFull
+zip            eventType      primaryUrl     sourceType     sourceQueries
+sources        attendance     pageScore      fetchedAt
+```
 
-- `renderResults()`, `applyFilters()`, `sortResults()`, `exportCSV()`
-- All served-county modal code and localStorage (`hiss.servedCounties`)
-- The served/unserved/unknown color-coding logic — it drives from `county` and `state`
-  fields which are already in Meilisearch documents
+`contact` is intentionally absent — PII stays in SQLite only.
 
-### Meilisearch query shape
+### Search query shape
 
-```json
+```javascript
+// POST http://192.168.2.148:7700/indexes/events/search
 {
-  "q": "<user text input>",
-  "filter": "state = MD AND eventType = 'Home Show'",
+  "q": "",                          // empty = return all; user text = full-text search
+  "filter": "state = 'MD'",        // optional filter expression
   "facets": ["state", "county", "eventType"],
   "sort": ["startDate:asc"],
-  "limit": 200
+  "limit": 500,
+  "attributesToRetrieve": ["*"]
 }
 ```
 
-Use `facets` to drive the state/county/event-type filter dropdowns. Served-county
-filtering remains client-side JS (comparing `county`+`state` against `hiss.servedCounties`
-in localStorage) — no change needed there.
+Filter syntax examples:
+```
+state = 'MD'
+state = 'MD' AND eventType = 'Home Show'
+state IN ['MD', 'VA'] AND startDate >= '2026-01-01'
+```
 
-### Browser access
+### What to remove from index.html
 
-The coordinator's browser hits `http://192.168.2.148:7700` directly. No HTTPS within
-the homelab LAN is required for this use case (read-only public event data, no auth,
-no PII in Meilisearch). `MEILI_SEARCH_KEY` is hardcoded in `index.html` at build/deploy
-time or sourced from a `<script>` config block.
+These functions call Serper.dev and implement the pipeline logic that now lives in the
+backend. Delete them entirely:
+
+```
+callSerper()          buildAllQueries()      buildQueriesForState()
+organicsToEvents()    normalizeEvent()       parseDates()
+inferEventType()      dedupeKey()            normalizeForDedup()
+jaccardSimilarity()   fuzzyMergeResults()    enrich()
+```
+
+Also remove:
+- The Serper API key `<input>` field and its localStorage save/load logic
+- The per-query progress counter and "Built N queries" display
+- The stop-button logic (no long-running query loop to stop)
+- The `COUNTIES`, `STATE_NAMES`, `STATE_ORDER` JS constants (pipeline owns these now)
+
+### What to add
+
+**`searchMeilisearch(query, filters)`** — replaces `callSerper` as the data source:
+
+```javascript
+async function searchMeilisearch(query = "", filters = {}) {
+  const MEILI_URL = "http://192.168.2.148:7700";
+  const MEILI_KEY = "REDACTED_MEILI_KEY";
+
+  const body = {
+    q: query,
+    limit: 500,
+    sort: ["startDate:asc"],
+    facets: ["state", "county", "eventType"],
+  };
+  if (filters.state)     body.filter = `state = '${filters.state}'`;
+  if (filters.eventType) body.filter = (body.filter ? body.filter + " AND " : "") + `eventType = '${filters.eventType}'`;
+
+  const resp = await fetch(`${MEILI_URL}/indexes/events/search`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${MEILI_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) throw new Error(`Meilisearch error ${resp.status}`);
+  const data = await resp.json();
+  return data.hits;   // array of event documents
+}
+```
+
+**"Last updated" banner** — replace the API key input with a data freshness indicator:
+
+```javascript
+async function fetchLastUpdated() {
+  const resp = await fetch("http://192.168.2.148:7700/indexes/events/stats", {
+    headers: { "Authorization": "Bearer REDACTED_MEILI_KEY" }
+  });
+  const stats = await resp.json();
+  // stats.numberOfDocuments, stats.isIndexing
+  return stats;
+}
+```
+
+### What to keep unchanged
+
+- `renderResults(events)` — already reads camelCase field names from event objects
+- `applyFilters()`, `sortResults()`, `exportCSV()`
+- All served-county modal code and `localStorage` (`hiss.servedCounties`)
+- The served/unserved/unknown colour-coding logic — reads `county` + `state` fields
+  which are already in every Meilisearch document
+
+### Implementation order
+
+1. Read `index.html` in full to understand the current structure before touching anything.
+2. Add `searchMeilisearch()` and `fetchLastUpdated()` — test they return data before
+   removing anything.
+3. Wire `searchMeilisearch()` to the search button handler. Confirm results render.
+4. Remove Serper-specific code (functions listed above, API key input, progress UI).
+5. Replace the API key input section with the "last updated" / doc count display.
+6. Update the filter dropdowns to be driven by Meilisearch `facetDistribution` rather
+   than the hardcoded county/state constants.
+7. Test: empty search (all events), text search, state filter, county filter, CSV export,
+   served-county modal, served/unserved filtering.
+8. Build and push: `git push origin main` triggers the frontend image rebuild.
+9. Pull and restart `hiss` on TrueNAS to deploy.
+
+### Testing during development
+
+The frontend is a single static file. Run a local server to avoid CORS issues with
+the Meilisearch fetch:
+
+```bash
+python3 -m http.server 8000
+# open http://localhost:8000/
+```
+
+Meilisearch at `192.168.2.148:7700` is reachable from any LAN client — no tunnel needed
+for browser-to-Meilisearch calls. Datasette SSH tunnel is only needed for direct SQLite
+inspection.
 
 ---
 
