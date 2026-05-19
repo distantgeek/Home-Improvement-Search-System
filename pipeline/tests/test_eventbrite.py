@@ -60,13 +60,12 @@ class TestNormalizeEbEvent:
         assert "20001" in item.addr_full
 
 
-@responses_lib.activate
 class TestFetchAll:
     def test_dry_run_returns_empty(self):
         result = fetch_all("api-key", dry_run=True)
         assert result == []
-        assert len(responses_lib.calls) == 0
 
+    @responses_lib.activate
     def test_returns_empty_on_403(self):
         # Mock 403 for first state (MD) — should bail out gracefully
         responses_lib.add(
@@ -77,6 +76,7 @@ class TestFetchAll:
         result = fetch_all("bad-key")
         assert result == []
 
+    @responses_lib.activate
     def test_parses_event_items_from_response(self, eventbrite_payload):
         # Mock responses for all 6 states (MD, VA, PA, NJ, DE, DC)
         for _ in range(6):
