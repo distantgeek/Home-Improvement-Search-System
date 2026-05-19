@@ -1,4 +1,6 @@
 services:
+
+  # ── Frontend (existing, unchanged) ──────────────────────────────────────────
   hiss:
     image: ghcr.io/distantgeek/home-improvement-search-system:latest
     container_name: hiss
@@ -6,7 +8,83 @@ services:
     networks:
       - proxy
 
+  # ── Search index ─────────────────────────────────────────────────────────────
+  hiss-meilisearch:
+    image: getmeili/meilisearch:v1.13
+    container_name: hiss-meilisearch
+    restart: unless-stopped
+    ports:
+      - "7700:7700"          # Browser queries directly — no NPM proxy needed
+    environment:
+      MEILI_ENV: production
+      MEILI_MASTER_KEY: "${MEILI_MASTER_KEY}"
+      MEILI_MAX_INDEXING_MEMORY: 128Mb
+    volumes:
+      - meilisearch_data:/meili_data
+    networks:
+      - internal
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:7700/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Data pipeline (long-lived, internal APScheduler) ─────────────────────────
+  hiss-pipeline:
+    image: ghcr.io/distantgeek/home-improvement-search-system/pipeline:latest
+    container_name: hiss-pipeline
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      SERPER_API_KEY: "${SERPER_API_KEY}"
+      EVENTBRITE_API_KEY: "${EVENTBRITE_API_KEY}"
+      MEILI_URL: "http://hiss-meilisearch:7700"
+      MEILI_MASTER_KEY: "${MEILI_MASTER_KEY}"
+      DB_PATH: "/data/hiss.db"
+      PIPELINE_SCHEDULE: "${PIPELINE_SCHEDULE:-0 3 * * 0}"
+    volumes:
+      - pipeline_data:/data
+      - ./data:/app/data:ro      # zip-county.json, city-county.json (read-only)
+    networks:
+      - internal
+    depends_on:
+      hiss-meilisearch:
+        condition: service_healthy
+
+  # ── Admin / debug UI (read-only SQLite browser) ───────────────────────────────
+  # Internal-only: access via  ssh -L 8001:hiss-datasette:8001  for debug sessions.
+  # Removed from proxy network — Datasette has no built-in auth and exposes raw SQL.
+  hiss-datasette:
+    image: datasetteproject/datasette:latest
+    container_name: hiss-datasette
+    restart: unless-stopped
+    command: >
+      datasette /data/hiss.db
+      --host 0.0.0.0
+      --port 8001
+      --setting sql_time_limit_ms 5000
+      --setting max_returned_rows 500
+    volumes:
+      - pipeline_data:/data:ro   # read-only
+    networks:
+      - internal
+
+volumes:
+  meilisearch_data:
+  pipeline_data:
+
 networks:
   proxy:
     external: true
-    name: YOUR_NPM_NETWORK_NAME   # replace with output of: docker network ls
+    name: "${NPM_NETWORK_NAME}"
+  internal:
+    driver: bridge

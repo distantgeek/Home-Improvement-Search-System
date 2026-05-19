@@ -1,0 +1,170 @@
+"""Serper.dev API client — Tier 2 catch-all event source."""
+from __future__ import annotations
+
+import logging
+import time
+from datetime import date
+
+import requests
+
+from ..constants import COUNTIES, EVENT_TYPES, STATE_NAMES, STATE_ORDER
+from ..models import EventItem
+from ..normalize import normalize_event, organics_to_events
+
+logger = logging.getLogger(__name__)
+
+SERPER_URL = "https://google.serper.dev/search"
+_INTER_QUERY_DELAY = 0.4   # seconds between successful requests
+_RATE_LIMIT_BACKOFF = 30   # seconds to wait on HTTP 429
+
+
+def _county_for_query(county: str) -> str:
+    if any(k in county for k in ("City", "County", "District", "Parish", "Borough")):
+        return county
+    return f"{county} County"
+
+
+def build_queries_for_state(
+    counties: list[str],
+    state: str,
+    event_types: list[str],
+) -> list[str]:
+    """Generate Serper search query strings for one state."""
+    state_name = STATE_NAMES[state]
+    year = date.today().year
+
+    templates: dict[str, list[str]] = {
+        "Home Show": [
+            f"home show {state_name} {year}",
+            f"home improvement expo {state_name} {year}",
+            f"home improvement show {state_name} {year}",
+            f"remodeling show {state_name} {year}",
+            f"home expo {state_name} {year}",
+        ],
+        "Home & Garden": [
+            f"home and garden show {state_name} {year}",
+            f"home garden expo {state_name} {year}",
+            f"outdoor living show {state_name} {year}",
+        ],
+        "County Fair": [
+            f"county fair {state_name} {year}",
+            *[f"{_county_for_query(c)} fair {state_name} {year}" for c in counties],
+        ],
+        "State Fair": [f"state fair {state_name} {year}"],
+        "Art & Craft": [
+            f"art fair {state_name} {year}",
+            f"craft show {state_name} {year}",
+            f"craft festival {state_name} {year}",
+        ],
+        "Food Festival": [
+            f"food festival {state_name} {year}",
+            f"wine festival {state_name} {year}",
+            f"seafood festival {state_name} {year}",
+        ],
+        "Fall Festival": [
+            f"fall festival {state_name} {year}",
+            f"harvest festival {state_name} {year}",
+            f"pumpkin festival {state_name} {year}",
+        ],
+        "Community Festival": [
+            f"community festival {state_name} {year}",
+            f"cultural festival {state_name} {year}",
+            f"outdoor festival {state_name} {year}",
+        ],
+    }
+
+    seen: set[str] = set()
+    queries: list[str] = []
+    for event_type in event_types:
+        for q in templates.get(event_type, []):
+            if q not in seen:
+                seen.add(q)
+                queries.append(q)
+    return queries
+
+
+def build_all_queries(event_types: list[str] | None = None) -> list[str]:
+    """Generate all Serper queries for all target states."""
+    types = event_types or EVENT_TYPES
+    seen: set[str] = set()
+    queries: list[str] = []
+    for state in STATE_ORDER:
+        for q in build_queries_for_state(COUNTIES[state], state, types):
+            if q not in seen:
+                seen.add(q)
+                queries.append(q)
+    return queries
+
+
+def _call_serper(api_key: str, query: str, session: requests.Session) -> list[dict]:
+    """Single Serper.dev API call; raises requests.HTTPError on non-2xx."""
+    resp = session.post(
+        SERPER_URL,
+        headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
+        json={"q": query, "gl": "us", "hl": "en", "num": 50},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        raise requests.RequestException(f"Serper returned non-JSON response: {exc}") from exc
+
+    if data.get("eventsResults"):
+        return [dict(r, _source_type="serper_events") for r in data["eventsResults"]]
+    if data.get("events"):
+        return [dict(r, _source_type="serper_events") for r in data["events"]]
+    return organics_to_events(data.get("organic", []))
+
+
+def fetch_all(
+    api_key: str,
+    queries: list[str],
+    search_state: str | None = None,
+    *,
+    dry_run: bool = False,
+) -> list[EventItem]:
+    """Run all queries against Serper.dev; return normalised EventItems."""
+    if dry_run:
+        for q in queries:
+            logger.info("[dry-run] Would call Serper: %s", q)
+        return []
+
+    events: list[EventItem] = []
+    with requests.Session() as session:
+        for idx, query in enumerate(queries):
+            retried = False
+            while True:
+                try:
+                    raw_events = _call_serper(api_key, query, session)
+                    break
+                except requests.HTTPError as exc:
+                    status = exc.response.status_code if exc.response is not None else 0
+                    if status == 429 and not retried:
+                        retried = True
+                        logger.warning(
+                            "Rate limited (query %d/%d) — waiting %ds",
+                            idx + 1,
+                            len(queries),
+                            _RATE_LIMIT_BACKOFF,
+                        )
+                        time.sleep(_RATE_LIMIT_BACKOFF)
+                        continue
+                    logger.error("Serper HTTP %d on query '%s'", status, query)
+                    raw_events = []
+                    break
+                except requests.RequestException as exc:
+                    logger.error("Serper request error on query '%s': %s", query, exc)
+                    raw_events = []
+                    break
+
+            for raw in raw_events:
+                item = normalize_event(raw, query, search_state)
+                if item is not None:
+                    events.append(item)
+
+            if idx < len(queries) - 1:
+                time.sleep(_INTER_QUERY_DELAY)
+
+    logger.info("Serper: %d events from %d queries", len(events), len(queries))
+    return events

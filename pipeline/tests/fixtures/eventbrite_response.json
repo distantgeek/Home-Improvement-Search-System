@@ -1,0 +1,55 @@
+{
+  "events": [
+    {
+      "id": "123456789",
+      "name": {"text": "DC Home & Design Show 2026", "html": "<p>DC Home &amp; Design Show 2026</p>"},
+      "url": "https://www.eventbrite.com/e/dc-home-design-show-tickets-123456789",
+      "start": {"timezone": "America/New_York", "local": "2026-02-14T10:00:00"},
+      "end":   {"timezone": "America/New_York", "local": "2026-02-16T18:00:00"},
+      "venue": {
+        "id": "987654",
+        "name": "Walter E. Washington Convention Center",
+        "address": {
+          "address_1": "801 Mt Vernon Pl NW",
+          "city": "Washington",
+          "region": "DC",
+          "postal_code": "20001",
+          "country": "US"
+        }
+      },
+      "category": {"id": "110", "name": "Home & Lifestyle"},
+      "format": {"id": "5", "name": "Expo"},
+      "is_free": false,
+      "status": "live"
+    },
+    {
+      "id": "987654321",
+      "name": {"text": "Northern Virginia Home Show", "html": "<p>Northern Virginia Home Show</p>"},
+      "url": "https://www.eventbrite.com/e/nova-home-show-tickets-987654321",
+      "start": {"timezone": "America/New_York", "local": "2026-03-07T10:00:00"},
+      "end":   {"timezone": "America/New_York", "local": "2026-03-09T18:00:00"},
+      "venue": {
+        "id": "112233",
+        "name": "Dulles Expo Center",
+        "address": {
+          "address_1": "4320 Chantilly Shopping Center",
+          "city": "Chantilly",
+          "region": "VA",
+          "postal_code": "20151",
+          "country": "US"
+        }
+      },
+      "category": {"id": "110", "name": "Home & Lifestyle"},
+      "format": {"id": "5", "name": "Expo"},
+      "is_free": false,
+      "status": "live"
+    }
+  ],
+  "pagination": {
+    "object_count": 2,
+    "page_number": 1,
+    "page_size": 50,
+    "page_count": 1,
+    "has_more_items": false
+  }
+}

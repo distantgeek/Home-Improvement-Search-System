@@ -1,0 +1,25 @@
+{
+  "eventsResults": [
+    {
+      "title": "Frederick Home & Garden Show 2026",
+      "date": {"when": "Mar 14 – 16, 2026", "startDate": "Mar 14, 2026"},
+      "address": ["Frederick Fairgrounds", "797 E Patrick St, Frederick, MD 21701"],
+      "link": "https://www.frederickfairgrounds.com/home-garden-show",
+      "_source_type": "serper_events"
+    },
+    {
+      "title": "Maryland State Fair 2026",
+      "date": {"when": "Aug 27 – Sep 7, 2026", "startDate": "Aug 27, 2026"},
+      "address": ["Maryland State Fairgrounds", "2200 York Rd, Timonium, MD 21093"],
+      "link": "https://www.marylandstatefair.com",
+      "_source_type": "serper_events"
+    },
+    {
+      "title": "Montgomery County Agricultural Fair",
+      "date": {"when": "Aug 11 – 17, 2026", "startDate": "Aug 11, 2026"},
+      "address": ["Montgomery County Fairgrounds", "16 Chestnut St, Gaithersburg, MD 20877"],
+      "link": "https://www.mcagfair.com",
+      "_source_type": "serper_events"
+    }
+  ]
+}

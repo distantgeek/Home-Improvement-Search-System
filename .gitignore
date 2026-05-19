@@ -19,6 +19,15 @@ npm-debug.log*
 *.key
 secrets.json
 
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
 # Build artifacts (none today, but just in case)
 dist/
 build/
