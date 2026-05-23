@@ -106,8 +106,9 @@ home-improvement-search-system/
 ├── .github/
 │   └── workflows/
 │       ├── docker-publish.yml       # Builds frontend image on push to main
-│       └── pipeline-publish.yml     # Builds pipeline image when pipeline/**,
-│                                    #   data/**, or Dockerfile.pipeline changes
+│       ├── pipeline-publish.yml     # Builds pipeline image when pipeline/**,
+│       │                            #   data/**, or Dockerfile.pipeline changes
+│       └── codeql.yml               # CodeQL JS analysis: weekly + on push/PR to main
 ├── data/
 │   ├── zip-county.json              # ZIP → {state, county} (~3,940 entries, VA/MD/PA/DC/NJ/DE)
 │   └── city-county.json             # "STATE:city" → {county} (~3,822 entries)
@@ -115,8 +116,21 @@ home-improvement-search-system/
 │   ├── architecture.md              # Detailed architecture doc (superseded by this file)
 │   └── county-coverage.md           # Served-county localStorage schema and UI notes
 ├── scripts/
-│   └── build-zip-county.sh          # Regenerates zip-county.json + city-county.json
-│                                    #   from U.S. Census ZCTA-to-County/Place files
+│   ├── build-zip-county.sh          # Regenerates zip-county.json + city-county.json
+│   │                                #   from U.S. Census ZCTA-to-County/Place files
+│   ├── lint.sh                      # Runs ESLint on index.html (npx eslint)
+│   ├── retire.sh                    # Runs Retire.js — vulnerable JS library detection (OWASP A06)
+│   ├── sast.sh                      # Runs Semgrep via podman (p/javascript, p/owasp-top-ten,
+│   │                                #   p/xss, p/secrets); output: sast-results.json (gitignored)
+│   └── test-container.sh            # Runs Playwright E2E tests in podman container
+├── tests/
+│   ├── e2e/
+│   │   ├── smoke.spec.js            # Basic app load and render checks
+│   │   ├── search.spec.js           # Search flow assertions
+│   │   ├── coverage.spec.js         # Served-county modal and colour-coding
+│   │   └── export.spec.js           # CSV export
+│   └── fixtures/
+│       └── meili-results.json       # Mock Meilisearch response for E2E tests
 ├── pipeline/
 │   ├── __init__.py
 │   ├── constants.py                 # COUNTIES dict, STATE_ORDER, STATE_NAMES, EVENT_TYPES
@@ -155,6 +169,11 @@ home-improvement-search-system/
 ├── Dockerfile.pipeline              # Pipeline: python:3.12-slim, runs as UID 1000
 ├── docker-compose.yml               # All four services + volumes + networks
 ├── .env.example                     # Template for required env vars (copy to .env)
+├── eslint.config.mjs                # ESLint 9 flat config: security + no-unsanitized + html plugins
+├── playwright.config.js             # Playwright E2E config; test dir: tests/e2e/
+├── package.json                     # Dev dependencies + npm scripts (lint, sast, retire, test, audit:all)
+├── package-lock.json                # Locked dependency tree
+├── .npmrc                           # save-exact=true, package-lock=true, audit=true
 ├── index.html                       # Complete frontend app (currently calls Serper directly)
 ├── AGENTS.md                        # This file — primary agent context document
 ├── README.md                        # Human-readable setup and usage
@@ -191,6 +210,38 @@ Completed work:
 
 The existing frontend (`index.html`) still calls Serper.dev directly from the browser.
 Phase 0 was purely additive; the coordinator's workflow is unchanged.
+
+### Pre-Phase-1 toolchain — COMPLETE ✓
+
+Committed as `00b55f4` on `main`.
+
+- **JS static analysis toolchain added:** ESLint 9 flat config (`eslint.config.mjs`) with
+  `eslint-plugin-security` (OWASP A03 rules), `eslint-plugin-no-unsanitized` (XSS
+  prevention), and `eslint-plugin-html` (processes inline `<script>` tags in `index.html`).
+  Retire.js added for OWASP A06 vulnerable library detection. Semgrep runs via podman
+  container (`docker.io/semgrep/semgrep:latest`) with `p/javascript`, `p/owasp-top-ten`,
+  `p/xss`, and `p/secrets` rulesets.
+- **CodeQL added:** `.github/workflows/codeql.yml` — GitHub Actions analysis of JavaScript
+  with `security-extended,security-and-quality` query suite, triggered weekly and on
+  push/PR to `main`.
+- **Playwright E2E scaffold in place:** `playwright.config.js` + 4 spec files
+  (`smoke`, `search`, `coverage`, `export`) under `tests/e2e/`. Tests run in the
+  `mcr.microsoft.com/playwright:v1.60.0-noble` container via podman (`npm test`).
+  `tests/fixtures/meili-results.json` provides a mock Meilisearch response.
+- **Supply chain audit completed:** Full 22-check audit performed per CISA Shai-Hulud
+  alert (2025-09-23) — IOC hash scanning, postinstall script audit, `npm audit`,
+  `npm audit signatures`, and SLSA provenance attestation (Playwright verified).
+  All packages clean.
+- **`index.html` security fixes applied:** ESLint result: 0 errors, 7 accepted warnings.
+  Fixes: removed dead `geocoderCache` variable, removed debug logging block, fixed
+  unnecessary regex escapes, used optional catch binding, added `escHtml()` in county
+  selector and coverage modal rendering, added `VALID_SOURCES` whitelist before
+  source-pill class interpolation, renamed `showError(html)` param to `showError(msg)`.
+  7 remaining warnings are accepted false positives (complex regex detection, one dynamic
+  regex built from the trusted `COUNTIES` constant).
+- **Fedora atomic constraint:** This devbox runs Fedora bootc — `dnf install` is not
+  available at runtime. All JS tooling must be npm packages (project `node_modules`) or
+  containerized via podman. This constraint applies to all future tooling additions.
 
 ### Phase 1 — NEXT (ready to start)
 
@@ -320,6 +371,38 @@ SERPER_API_KEY=... MEILI_MASTER_KEY=... MEILI_URL=http://localhost:7700 \
 # Produces data/zip-county.json and data/city-county.json
 # Requires: bash, curl, awk, python3
 ```
+
+### Frontend (JavaScript) QA
+
+All JS tooling runs via `npm` scripts (no `dnf install` — Fedora atomic constraint).
+Semgrep and Playwright run inside podman containers; ESLint and Retire.js run via `npx`.
+
+```bash
+# Lint index.html inline scripts (ESLint, OWASP rules)
+npm run lint
+
+# SAST scan (Semgrep via podman — p/javascript, p/owasp-top-ten, p/xss, p/secrets)
+npm run sast
+# Output written to sast-results.json (gitignored)
+
+# Vulnerable library detection (Retire.js, OWASP A06)
+npm run retire
+
+# Supply chain verification (npm audit + npm audit signatures)
+npm run verify
+
+# All QA checks in one shot
+npm run audit:all
+
+# E2E tests (Playwright in mcr.microsoft.com/playwright:v1.60.0-noble via podman)
+npm test
+```
+
+**Accepted warnings (do not re-raise as blockers):**
+The 7 ESLint warnings remaining after the pre-Phase-1 fixes are false positives:
+complex regexes flagged by `detect-unsafe-regex`, and one dynamic regex built from
+the trusted `COUNTIES` constant. All are marked with `// eslint-disable-next-line`
+comments and justification in `index.html`.
 
 ### CI workflow summary
 
@@ -507,6 +590,16 @@ city-to-county lookups. Edit here when adding new states or event types.
 | Parameterized SQL | All SQLite queries use `?` placeholders; errors trigger `rollback()` |
 | Per-batch Meilisearch error handling | Failed batches are skipped (not abort); they retry on the next pipeline run |
 | Fuzzy dedup safety guard | Events with no year and no county are excluded from fuzzy comparison — prevents spurious cross-state merges of unresolved organics |
+
+### Frontend security controls
+
+| Control | What it does |
+|---|---|
+| ESLint OWASP ruleset | `eslint-plugin-security` + `eslint-plugin-no-unsanitized` + `eslint-plugin-html` scan `index.html` inline scripts for OWASP A03/XSS patterns |
+| Semgrep SAST | `p/javascript`, `p/owasp-top-ten`, `p/xss`, `p/secrets` rules via podman container — 0 findings on current codebase |
+| Retire.js | OWASP A06 — scans for vulnerable JS library versions referenced in `index.html` |
+| CodeQL | GitHub Actions: weekly + on push/PR to `main`; `security-extended,security-and-quality` queries on JavaScript |
+| Supply chain audit | npm audit + npm audit signatures + SLSA provenance verification per CISA Shai-Hulud (2025-09-23) advisory |
 
 ### Accepted risk (homelab — do not re-raise as blockers)
 
