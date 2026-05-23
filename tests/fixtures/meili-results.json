@@ -1,0 +1,85 @@
+{
+  "searchResponse": {
+    "hits": [
+      {
+        "eventId": "test-home-show-001",
+        "dedupeKey": "frederick county home show|2026|frederick",
+        "name": "Frederick County Home Show",
+        "startDate": "2026-03-15",
+        "endDate": "2026-03-17",
+        "venue": "Frederick Fairgrounds",
+        "city": "Frederick",
+        "state": "MD",
+        "county": "Frederick County",
+        "countyFull": "Frederick County",
+        "zip": "21702",
+        "eventType": "Home Show",
+        "primaryUrl": "https://www.eventbrite.com/e/frederick-county-home-show-tickets-123456789",
+        "sourceType": "serper_events",
+        "sourceQueries": ["home show Frederick County Maryland 2026"],
+        "sources": [],
+        "attendance": "",
+        "pageScore": 0.95,
+        "fetchedAt": "2026-05-19T03:00:00Z"
+      },
+      {
+        "eventId": "test-county-fair-001",
+        "dedupeKey": "montgomery county fair|2026|gaithersburg",
+        "name": "Montgomery County Agricultural Fair",
+        "startDate": "2026-08-21",
+        "endDate": "2026-08-29",
+        "venue": "Montgomery County Fairgrounds",
+        "city": "Gaithersburg",
+        "state": "MD",
+        "county": "Montgomery County",
+        "countyFull": "Montgomery County",
+        "zip": "20879",
+        "eventType": "County Fair",
+        "primaryUrl": "https://www.mcagfair.com/",
+        "sourceType": "serper_events",
+        "sourceQueries": ["county fair Montgomery County Maryland 2026"],
+        "sources": [],
+        "attendance": "200000",
+        "pageScore": 0.88,
+        "fetchedAt": "2026-05-19T03:00:00Z"
+      },
+      {
+        "eventId": "test-home-show-002",
+        "dedupeKey": "arlington home garden show|2026|arlington",
+        "name": "Arlington Home & Garden Show",
+        "startDate": "2026-04-10",
+        "endDate": "2026-04-12",
+        "venue": "Arlington Convention Center",
+        "city": "Arlington",
+        "state": "VA",
+        "county": "Arlington",
+        "countyFull": "Arlington",
+        "zip": "22201",
+        "eventType": "Home & Garden",
+        "primaryUrl": "https://www.arlingtonhomeshow.com/",
+        "sourceType": "serper_events",
+        "sourceQueries": ["home and garden show Arlington Virginia 2026"],
+        "sources": [],
+        "attendance": "",
+        "pageScore": 0.72,
+        "fetchedAt": "2026-05-19T03:00:00Z"
+      }
+    ],
+    "query": "",
+    "processingTimeMs": 3,
+    "limit": 100,
+    "offset": 0,
+    "estimatedTotalHits": 3
+  },
+  "statsResponse": {
+    "numberOfDocuments": 980,
+    "isIndexing": false,
+    "fieldDistribution": {
+      "name": 980,
+      "startDate": 978,
+      "county": 871,
+      "zip": 643
+    },
+    "lastUpdate": "2026-05-19T03:15:42Z"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "hiss-tests",
+  "description": "E2E test tooling only — index.html has no build step or runtime dependencies",
+  "private": true,
+  "scripts": {
+    "test": "sh scripts/test-container.sh",
+    "test:report": "playwright show-report",
+    "verify": "npm audit && npm audit signatures"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.60.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

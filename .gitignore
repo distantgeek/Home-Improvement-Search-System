@@ -33,6 +33,10 @@ dist/
 build/
 node_modules/
 
+# Playwright
+playwright-report/
+test-results/
+
 # Scratch
 tmp/
 scratch/
