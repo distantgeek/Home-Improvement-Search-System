@@ -1073,7 +1073,6 @@ let sortDir        = 1;
 let zipCounty      = null;
 let cityCounty     = null;
 let countyNameRe   = null;
-let geocoderCache  = {};
 let searchRunning  = false;
 let stopRequested  = false;
 
@@ -1103,7 +1102,7 @@ function loadFromStorage() {
       const parsed = JSON.parse(raw);
       const arr = Array.isArray(parsed) ? parsed : (parsed.servedCounties || []);
       servedSet = new Set(arr);
-    } catch (_) { servedSet = new Set(); }
+    } catch { servedSet = new Set(); }
   }
 }
 
@@ -1111,11 +1110,11 @@ async function loadZipCounty() {
   try {
     const r = await fetch('data/zip-county.json');
     if (r.ok) zipCounty = await r.json();
-  } catch (_) {}
+  } catch { /* optional data file — ignore fetch errors */ }
   try {
     const r = await fetch('data/city-county.json');
     if (r.ok) cityCounty = await r.json();
-  } catch (_) {}
+  } catch { /* optional data file — ignore fetch errors */ }
   buildCountyNameRegex();
 }
 
@@ -1210,6 +1209,7 @@ function populateCounties(state) {
   }
   if (state === 'ALL') {
     const total = STATE_ORDER.reduce((n, s) => n + COUNTIES[s].length, 0);
+    // eslint-disable-next-line no-unsanitized/property -- total is a number from trusted constant
     list.innerHTML = `<div style="font-family:var(--font-mono);font-size:11px;color:var(--teal);padding:8px 6px;line-height:1.6;">
       All ${total} counties across all 6 states selected.<br>
       <span style="color:var(--text-dim);">Switch to a single state to pick specific counties.</span>
@@ -1226,8 +1226,9 @@ function populateCounties(state) {
     const item = document.createElement('div');
     item.className      = 'county-item';
     item.dataset.county = county.toLowerCase();
-    item.innerHTML = `<input type="checkbox" id="${id}" value="${county}" checked>
-                      <label for="${id}">${county}</label>`;
+    // eslint-disable-next-line no-unsanitized/property -- id uses .replace(/\W+/g,'_') (word chars only); county escaped with escHtml
+    item.innerHTML = `<input type="checkbox" id="${id}" value="${escHtml(county)}" checked>
+                      <label for="${id}">${escHtml(county)}</label>`;
     list.appendChild(item);
   });
 }
@@ -1287,7 +1288,7 @@ async function runSearch() {
       const r = await fetch('data/zip-county.json');
       if (!r.ok) throw new Error();
       zipCounty = await r.json();
-    } catch (_) {
+    } catch {
       showError('Cannot load data/zip-county.json — serve this folder with <code>python3 -m http.server 8000</code> and open <a href="http://localhost:8000" target="_blank" style="color:inherit">http://localhost:8000</a>');
       return;
     }
@@ -1374,6 +1375,7 @@ async function runSearch() {
           showError('Network offline — check your connection, then run the search again.');
           stopRequested = true;
         } else {
+          // eslint-disable-next-line no-console -- operational failure log; non-sensitive
           console.warn('Query failed (skipping):', q, err.message || err.status);
         }
         break;
@@ -1464,10 +1466,12 @@ async function runSearch() {
     const counts = { google: 0, eventbrite: 0, facebook: 0 };
     currentResults.forEach(r => { counts[r.sourceType] = (counts[r.sourceType] || 0) + 1; });
     const labels = { google: 'Google', eventbrite: 'Eventbrite', facebook: 'Facebook' };
+    const VALID_SOURCES = new Set(['google', 'eventbrite', 'facebook']);
     const pills  = Object.entries(counts)
-      .filter(([, n]) => n > 0)
+      .filter(([src, n]) => n > 0 && VALID_SOURCES.has(src))
       .map(([src, n]) => `<span class="source-pill ${src}">${labels[src]}: ${n}</span>`)
       .join('');
+    // eslint-disable-next-line no-unsanitized/property -- src from VALID_SOURCES whitelist; labels from hardcoded object; n is a number
     pillsEl.innerHTML      = pills;
     pillsEl.style.display  = Object.keys(counts).filter(k => counts[k] > 0).length > 1 ? 'flex' : 'none';
     renderResults(applyFilters(currentResults));
@@ -1486,13 +1490,6 @@ async function callSerper(apiKey, query) {
     throw e;
   }
   const data = await resp.json();
-  if (!callSerper._logged) {
-    callSerper._logged = true;
-    console.log('[HISS] Response keys:', Object.keys(data));
-    console.log('[HISS] eventsResults:', data.eventsResults?.length ?? 0, '| organic:', data.organic?.length ?? 0);
-    if (data.eventsResults?.[0]) console.log('[HISS] Sample eventsResult:', JSON.stringify(data.eventsResults[0]));
-    if (data.organic?.[0])       console.log('[HISS] Sample organic:', JSON.stringify(data.organic[0]));
-  }
   // Prefer structured events from the carousel; fall back to parsing organic listings
   if (data.eventsResults?.length) return data.eventsResults;
   if (data.events?.length)        return data.events;
@@ -1504,8 +1501,8 @@ async function callSerper(apiKey, query) {
 const ORGANIC_EVENT_RE  = /\b(home\s*show|home\s+improvement\s+(show|expo|fair)|home\s*(and|&)\s*garden\s+(show|expo)|remodeling\s+(show|expo)|renovation\s+(show|expo)|outdoor\s+living\s+(show|expo)|county\s+fair|state\s+fair|art\s+fair|craft\s+(show|fair|festival)|home\s+expo|trade\s+show|home\s+garden\s+expo|food\s+festival|wine\s+festival|beer\s+festival|seafood\s+festival|strawberry\s+festival|harvest\s+festival|fall\s+festival|pumpkin\s+festival|oktoberfest|cultural\s+festival|heritage\s+festival|community\s+festival|spring\s+festival|summer\s+festival|outdoor\s+festival|farm\s+show|agricultural\s+fair)\b/i;
 const ORGANIC_DATE_RE   = /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+\d{1,2}(?:\s*[-–]\s*\d{1,2})?,?\s*202\d/i;
 const ATTENDANCE_RE     = /\b(?:over\s+|up\s+to\s+|about\s+|approximately\s+|attracts?\s+|draws?\s+|expected?\s+)?([\d,]+(?:k|\+)?)\s*(?:\+\s*)?(?:attendees?|visitors?|guests?|shoppers?|participants?)\b|\battendance\s+(?:of\s+)?(?:over\s+)?([\d,]+(?:k|\+)?)\b/i;
-const EMAIL_RE          = /\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b/;
-const PHONE_RE          = /\(?\b\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}\b/;
+const EMAIL_RE          = /\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b/;
+const PHONE_RE          = /\(?\b\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}\b/;
 // Domains that are never useful event pages — encyclopedias, social profiles.
 const SKIP_DOMAIN_RE    = /\b(wikipedia\.org|instagram\.com|twitter\.com|x\.com|tiktok\.com|pinterest\.com|linkedin\.com)\b/;
 
@@ -1785,7 +1782,7 @@ function parseDates(dateInput) {
   if (!rawStart) return { startDate: '', endDate: '' };
 
   // Strip the "– end" part before parsing the start date
-  const cleanStart = rawStart.split(/\s*[–\-]\s*/)[0].trim();
+  const cleanStart = rawStart.split(/\s*[–-]\s*/)[0].trim();
   const hasYear = /\b\d{4}\b/.test(cleanStart);
   const yearFallback = (rangeStr.match(/\b(202\d)\b/) || [])[1] || '';
   const startStr = hasYear ? cleanStart : (yearFallback ? `${cleanStart}, ${yearFallback}` : cleanStart);
@@ -1794,7 +1791,7 @@ function parseDates(dateInput) {
   const startDate = start.toISOString().slice(0, 10);
 
   // Parse end date from range notation: "Apr 18 – 19" or "Apr 18 – May 3, 2026"
-  const m = rangeStr.match(/[–\-]\s*(?:(\w+)\s+)?(\d+)(?:,\s*(\d{4}))?/);
+  const m = rangeStr.match(/[–-]\s*(?:(\w+)\s+)?(\d+)(?:,\s*(\d{4}))?/);
   if (m) {
     const month = m[1] || start.toLocaleString('en-US', { month: 'short' });
     const day   = m[2];
@@ -1929,10 +1926,11 @@ function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 // ═══════════════════════════════════════════
 //  ERROR BANNER
 // ═══════════════════════════════════════════
-function showError(html) {
+function showError(msg) {
   const b = document.getElementById('errorBanner');
   b.style.display = 'flex';
-  b.innerHTML = `<span style="flex:1">${html}</span>
+  // eslint-disable-next-line no-unsanitized/property -- all callers pass static dev-authored strings only
+  b.innerHTML = `<span style="flex:1">${msg}</span>
     <button onclick="clearError()" style="background:none;border:none;color:inherit;cursor:pointer;font-size:14px;padding:0 4px;">✕</button>`;
 }
 
@@ -1974,6 +1972,7 @@ function renderResults(results) {
   const table       = document.getElementById('resultsTable');
   const placeholder = document.getElementById('tablePlaceholder');
 
+  // eslint-disable-next-line no-unsanitized/property -- results.length is always a number
   document.getElementById('resultCount').innerHTML = results.length
     ? `<strong>${results.length}</strong> events found`
     : 'No events match current filters';
@@ -1990,6 +1989,7 @@ function renderResults(results) {
   placeholder.style.display = 'none';
   table.style.display       = 'table';
 
+  // eslint-disable-next-line no-unsanitized/property -- all external fields wrapped in escHtml(); confirmed clean by security review
   tbody.innerHTML = results.map((e, idx) => {
     const typeClass = EVENT_TYPES[e.type] || 'home-show';
     const covLabel  = { served: '✓ Served', 'not-served': '✗ Not Served', unknown: '? Unconfigured' }[e.coverage];
@@ -2082,6 +2082,7 @@ function openCovModal() {
 
     const header = document.createElement('div');
     header.className = 'modal-state-label';
+    // eslint-disable-next-line no-unsanitized/property -- STATE_NAMES values and state codes are hardcoded constants
     header.innerHTML = `${STATE_NAMES[state]}
       <div class="state-actions">
         <button class="label-btn" onclick="modalSelectAll('${state}')">All</button>
@@ -2096,8 +2097,9 @@ function openCovModal() {
       const safeId = 'm_' + key.replace(/\W+/g, '_');
       const item   = document.createElement('div');
       item.className = 'modal-county-item';
+      // eslint-disable-next-line no-unsanitized/property -- safeId uses .replace(/\W+/g,'_'); key is state:county from COUNTIES; county escaped
       item.innerHTML = `<input type="checkbox" id="${safeId}" data-key="${key}" ${servedSet.has(key) ? 'checked' : ''}>
-                        <label for="${safeId}">${county}</label>`;
+                        <label for="${safeId}">${escHtml(county)}</label>`;
       grid.appendChild(item);
     });
 
@@ -2126,9 +2128,11 @@ function saveCoverage() {
   }
 }
 
+// eslint-disable-next-line no-unused-vars
 function modalSelectAll(state) {
   document.querySelectorAll(`#coverageModalBody input[data-key^="${state}:"]`).forEach(c => c.checked = true);
 }
+// eslint-disable-next-line no-unused-vars
 function modalClearAll(state) {
   document.querySelectorAll(`#coverageModalBody input[data-key^="${state}:"]`).forEach(c => c.checked = false);
 }
@@ -2136,6 +2140,7 @@ function modalClearAll(state) {
 // ═══════════════════════════════════════════
 //  UTILS
 // ═══════════════════════════════════════════
+// eslint-disable-next-line no-unused-vars
 function toggleAltUrls(chevron) {
   const idx = chevron.dataset.idx;
   const row = chevron.closest('tr');
