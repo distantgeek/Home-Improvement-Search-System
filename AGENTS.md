@@ -247,7 +247,7 @@ All Serper-specific code removed. County list now driven by `facetDistribution` 
 by Meilisearch. Event count displayed in topbar via `/indexes/events/stats`.
 Deployed to TrueNAS and verified: container healthy, HTTP 200, 1090 docs in index.
 
-**Frontend API key in use:** `REDACTED_MEILI_KEY`
+**Frontend API key in use:** `<see MEILI_KEY in TrueNAS .env>`
 (HISS Frontend Key — `actions: ["search", "stats.get"]`; created because the default
 search-only key lacks `stats.get` permission needed for the event count display).
 
@@ -629,14 +629,15 @@ calling Serper directly from the browser.
 | Item | Value |
 |---|---|
 | Meilisearch host | `http://192.168.2.148:7700` |
-| HISS Frontend Key | `REDACTED_MEILI_KEY` |
+| HISS Frontend Key | `<see MEILI_KEY in TrueNAS .env>` |
 | Search endpoint | `POST http://192.168.2.148:7700/indexes/events/search` |
 | Stats endpoint | `GET http://192.168.2.148:7700/indexes/events/stats` |
-| Auth header | `Authorization: Bearer REDACTED_MEILI_KEY` |
+| Auth header | `Authorization: Bearer <see MEILI_KEY in TrueNAS .env>` |
 
 The HISS Frontend Key has `actions: ["search", "stats.get"]` — it cannot write, delete,
-or configure the index. Safe to hardcode in `index.html`. The default search-only key
-The Meilisearch default search-only key was not used because it lacks `stats.get` permission.
+or configure the index. Injected into the container at startup via `MEILI_KEY` env var
+(see TrueNAS `.env`). The default search-only key was not used because it lacks `stats.get`
+for the event count display.
 
 ### Meilisearch document schema
 
@@ -698,7 +699,7 @@ Also remove:
 ```javascript
 async function searchMeilisearch(query = "", filters = {}) {
   const MEILI_URL = "http://192.168.2.148:7700";
-  const MEILI_KEY = "REDACTED_MEILI_KEY";
+  const MEILI_KEY = "<see MEILI_KEY in TrueNAS .env>";
 
   const body = {
     q: query,
@@ -728,7 +729,7 @@ async function searchMeilisearch(query = "", filters = {}) {
 ```javascript
 async function fetchLastUpdated() {
   const resp = await fetch("http://192.168.2.148:7700/indexes/events/stats", {
-    headers: { "Authorization": "Bearer REDACTED_MEILI_KEY" }
+    headers: { "Authorization": "Bearer <see MEILI_KEY in TrueNAS .env>" }
   });
   const stats = await resp.json();
   // stats.numberOfDocuments, stats.isIndexing
