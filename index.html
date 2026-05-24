@@ -1315,7 +1315,7 @@ async function runSearch() {
     if (!navigator.onLine) {
       showError('Network offline — check your connection and try again.');
     } else {
-      showError('Could not reach the search index. Make sure you are on the local network (192.168.2.x).');
+      showError('Could not reach the search index. Make sure you are connected to the local network.');
     }
     document.getElementById('tablePlaceholder').style.display = 'flex';
     document.getElementById('tablePlaceholder').innerHTML =

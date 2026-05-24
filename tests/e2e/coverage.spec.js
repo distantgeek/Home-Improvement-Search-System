@@ -5,17 +5,15 @@ const fixtures = require('../fixtures/meili-results.json');
 // Coverage coloring tests — verify green/red/gray indicators based on served counties.
 // Require Phase 1 Meilisearch mock to seed results into the table.
 
-const MEILI_HOST = 'http://192.168.2.148:7700';
-
 async function mockAndSearch(page) {
-  await page.route(`${MEILI_HOST}/indexes/events/search`, route =>
+  await page.route('**/meili/indexes/events/search', route =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(fixtures.searchResponse),
     })
   );
-  await page.route(`${MEILI_HOST}/indexes/events/stats`, route =>
+  await page.route('**/meili/indexes/events/stats', route =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -48,10 +46,10 @@ test.describe('Coverage coloring', () => {
     await page.evaluate(() => {
       localStorage.setItem('hiss.servedCounties', JSON.stringify(['MD:Frederick County']));
     });
-    await page.route(`${MEILI_HOST}/indexes/events/search`, route =>
+    await page.route('**/meili/indexes/events/search', route =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixtures.searchResponse) })
     );
-    await page.route(`${MEILI_HOST}/indexes/events/stats`, route =>
+    await page.route('**/meili/indexes/events/stats', route =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixtures.statsResponse) })
     );
     await page.reload();
@@ -69,10 +67,10 @@ test.describe('Coverage coloring', () => {
     await page.evaluate(() => {
       localStorage.setItem('hiss.servedCounties', JSON.stringify(['MD:Frederick County']));
     });
-    await page.route(`${MEILI_HOST}/indexes/events/search`, route =>
+    await page.route('**/meili/indexes/events/search', route =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixtures.searchResponse) })
     );
-    await page.route(`${MEILI_HOST}/indexes/events/stats`, route =>
+    await page.route('**/meili/indexes/events/stats', route =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixtures.statsResponse) })
     );
     await page.reload();
@@ -91,10 +89,10 @@ test.describe('Coverage filter toggle', () => {
     await page.evaluate(() => {
       localStorage.setItem('hiss.servedCounties', JSON.stringify(['MD:Frederick County']));
     });
-    await page.route(`${MEILI_HOST}/indexes/events/search`, route =>
+    await page.route('**/meili/indexes/events/search', route =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixtures.searchResponse) })
     );
-    await page.route(`${MEILI_HOST}/indexes/events/stats`, route =>
+    await page.route('**/meili/indexes/events/stats', route =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(fixtures.statsResponse) })
     );
     await page.reload();

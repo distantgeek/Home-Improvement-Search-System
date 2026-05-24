@@ -5,9 +5,8 @@ const fixtures = require('../fixtures/meili-results.json');
 // Phase 1 target behavior — these tests describe the Meilisearch-backed UI.
 // They FAIL against the current Serper-based index.html and pass after Phase 1.
 
-const MEILI_HOST = 'http://192.168.2.148:7700';
-const MEILI_SEARCH = `${MEILI_HOST}/indexes/events/search`;
-const MEILI_STATS = `${MEILI_HOST}/indexes/events/stats`;
+const MEILI_SEARCH = '**/meili/indexes/events/search';
+const MEILI_STATS = '**/meili/indexes/events/stats';
 
 async function mockMeilisearch(page) {
   await page.route(MEILI_SEARCH, route =>
