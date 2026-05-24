@@ -799,11 +799,8 @@
   <div class="brand">HISS <span>Home Improvement Show Search</span></div>
   <div class="topbar-right">
     <div class="data-freshness">
-      <span class="freshness-label">EVENTS</span>
+      <span class="freshness-label">EVENTS IN INDEX</span>
       <span class="freshness-count" id="eventCount">—</span>
-      <span class="freshness-sep">·</span>
-      <span class="freshness-label">UPDATED</span>
-      <span class="freshness-date" id="lastUpdated">—</span>
     </div>
     <div class="status-pill" id="statusPill">READY</div>
   </div>
@@ -1237,15 +1234,11 @@ async function fetchLastUpdated() {
       headers: { 'Authorization': `Bearer ${MEILI_KEY}` },
     });
     if (!resp.ok) return;
-    const stats    = await resp.json();
-    const countEl  = document.getElementById('eventCount');
-    const updEl    = document.getElementById('lastUpdated');
-    if (countEl) countEl.textContent = stats.numberOfDocuments != null
-      ? stats.numberOfDocuments.toLocaleString() : '—';
-    if (updEl) updEl.textContent = stats.lastUpdate
-      ? new Date(stats.lastUpdate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-      : '—';
-  } catch { /* non-blocking — freshness display stays at — */ }
+    const stats   = await resp.json();
+    const countEl = document.getElementById('eventCount');
+    if (countEl && stats.numberOfDocuments != null)
+      countEl.textContent = stats.numberOfDocuments.toLocaleString();
+  } catch { /* non-blocking — count stays at — */ }
 }
 
 // ═══════════════════════════════════════════
