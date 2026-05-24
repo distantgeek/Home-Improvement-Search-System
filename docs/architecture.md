@@ -23,7 +23,7 @@ there.
 | **Meilisearch v1.x** | Search index | Typo-tolerant, faceted REST search; port 7700 exposed on TrueNAS host |
 | **Datasette** | Admin/debug UI | Read-only browse of `hiss.db`; useful for verifying dedup output |
 | **rapidfuzz** | Jaccard similarity | Python port of fuzzyMergeResults; C extension, faster than pure Python |
-| **httpd:alpine** | Frontend static server | Unchanged; serves `index.html` |
+| **nginx:alpine** | Frontend static server + reverse proxy | Serves `index.html`; proxies `/meili/` to Meilisearch with server-side auth header |
 | **Scrapy** | Phase 2 curated crawling | Multi-domain HTML crawlers for state fair sites, home show org pages |
 | **Docker Compose** | Service orchestration | Dockge on TrueNAS manages the stack |
 | **GHCR** | Container registry | Existing CI/CD; pipeline image added |
@@ -43,8 +43,7 @@ there.
 ```
 Browser (LAN coordinator machine)
   │
-  ├── http://truenas-ip:8888  →  hiss (httpd:alpine) → index.html
-  └── http://truenas-ip:7700  →  hiss-meilisearch (search queries, search-only key)
+  └── http://truenas-ip:8888  →  hiss (nginx:alpine) → /meili/ → Meilisearch
 
 TrueNAS Docker internal network
   hiss-pipeline ──→ hiss-meilisearch:7700  (index writes, master key)
@@ -52,9 +51,10 @@ TrueNAS Docker internal network
   hiss-pipeline ──→ /data/hiss.db          (named volume)
 ```
 
-Meilisearch is **not** behind NPM. Port 7700 is exposed directly on the TrueNAS host.
-The search-only API key prevents writes. No HTTPS within the homelab LAN is acceptable
-for this use case (no PII, no authentication, read-only public event data).
+Meilisearch is proxied through the nginx frontend container at `/meili/`. The
+Authorization header is injected server-side from a Docker secret file — the API key
+never reaches the browser. Port 7700 may also be exposed on the TrueNAS host for direct
+debug access. No HTTPS within the homelab LAN is acceptable for this use case.
 
 ---
 
@@ -231,12 +231,12 @@ home-improvement-search-system/
 │           ├── serper_events_response.json
 │           ├── serper_organic_response.json
 │           └── eventbrite_response.json
-├── Dockerfile                   # existing: httpd:alpine frontend
+├── Dockerfile                   # existing: nginx:alpine frontend + reverse proxy
 ├── Dockerfile.pipeline          # NEW: Python pipeline image
 ├── docker-compose.yml           # MODIFIED: adds 3 new services
 ├── .env.example                 # NEW: template for required env vars
 ├── index.html                   # MODIFIED in Phase 1: queries Meilisearch
-├── CLAUDE.md
+├── AGENTS.md
 └── README.md
 ```
 

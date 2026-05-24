@@ -1,4 +1,5 @@
 """Three-tier county/ZIP enrichment (ported from index.html normalizeEvent)."""
+
 from __future__ import annotations
 
 import json
@@ -88,17 +89,20 @@ class Enricher:
                 matched = m.group(1)
                 # Prefer the event's existing state to avoid cross-state mismatches
                 # (e.g. "Frederick" exists in both MD and VA — prefer the known state)
-                candidate_states = (
-                    ([event.state] if event.state else [])
-                    + [s for s in STATE_ORDER if s != event.state]
-                )
+                candidate_states = ([event.state] if event.state else []) + [
+                    s for s in STATE_ORDER if s != event.state
+                ]
                 for state_code in candidate_states:
                     if any(c.lower() == matched.lower() for c in COUNTIES[state_code]):
                         event.county = matched
-                        suffix = "" if any(
-                            matched.lower().endswith(s)
-                            for s in (" county", " city", " borough")
-                        ) else " County"
+                        suffix = (
+                            ""
+                            if any(
+                                matched.lower().endswith(s)
+                                for s in (" county", " city", " borough")
+                            )
+                            else " County"
+                        )
                         event.county_full = matched + suffix
                         if not event.state:
                             event.state = state_code
@@ -111,8 +115,9 @@ class Enricher:
                 try_states = ([event.state] if event.state else []) + [
                     s for s in STATE_ORDER if s != event.state
                 ]
+                city_title = city.strip().title()
                 for state_code in try_states:
-                    key = f"{state_code}:{city}"
+                    key = f"{state_code}:{city_title}"
                     if key in self._city_county:
                         raw_county = self._city_county[key]["county"]
                         event.county = _strip_suffix(raw_county)

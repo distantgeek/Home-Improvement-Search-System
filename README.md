@@ -2,7 +2,7 @@
 
 Event discovery tool for home improvement companies that exhibit at trade shows, home expos, county fairs, state fairs, food festivals, and other vendor-accepting events across VA, MD, PA, DC, NJ, and DE.
 
-See [CLAUDE.md](./CLAUDE.md) for the full project brief.
+See [AGENTS.md](./AGENTS.md) for the full project brief and architecture documentation.
 
 ## Quick Start (local)
 
@@ -36,9 +36,9 @@ No install, no build step, no Node, no server required for local use.
 
 ```
 index.html              # The entire app — single file, no build step
-Dockerfile              # httpd:alpine image for containerized deployment
+Dockerfile              # nginx:alpine image for containerized deployment
 docker-compose.yml      # Compose file for server deployment
-CLAUDE.md               # Project brief and build notes for Claude Code
+AGENTS.md               # Project brief and architecture documentation for AI assistants
 README.md               # This file
 docs/county-coverage.md # Served-county configuration spec
 scripts/                # Maintenance scripts (ZIP lookup build, etc.)
@@ -49,9 +49,10 @@ data/city-county.json   # City → county lookup (~3,822 entries, generated from
 
 ## Deployment
 
-The app is a static single-file frontend. The container is an `httpd:alpine` image
-that serves `index.html`, `data/zip-county.json`, and `data/city-county.json`.
-No secrets, no backend — the Serper API key lives only in the user's browser localStorage.
+The app is a single-file frontend with an nginx proxy that injects authorization headers
+via Docker secrets. The container is an `nginx:alpine` image that serves `index.html` and
+routes `/meili/` to Meilisearch. The pipeline pre-fetches events on a schedule — no browser
+API calls needed.
 
 A new image is built automatically and pushed to
 `ghcr.io/distantgeek/home-improvement-search-system:latest` on every push to `main`
@@ -142,8 +143,8 @@ Requires `bash`, `curl`, `awk`, and `python3`. Downloads two files from the Cens
 
 ### Resuming in a fresh Claude Code session
 
-Read `CLAUDE.md` — it is the authoritative project brief and contains the working
-TODO list under "What Needs to Be Built Next".
+Read `AGENTS.md` — it is the authoritative project brief and contains the full
+architecture, pipeline modules, security notes, and deployment instructions.
 
 ### Branch conventions
 

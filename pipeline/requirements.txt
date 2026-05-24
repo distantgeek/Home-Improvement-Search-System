@@ -1,6 +1,6 @@
-requests==2.32.*
-beautifulsoup4==4.12.*
-rapidfuzz==3.9.*
-meilisearch==0.31.*
+requests==2.34.*
+beautifulsoup4==4.14.*
+rapidfuzz==3.14.*
+meilisearch==0.41.*
 python-dateutil==2.9.*
-APScheduler==3.10.*
+APScheduler==3.11.*

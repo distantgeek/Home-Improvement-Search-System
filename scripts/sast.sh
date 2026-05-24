@@ -18,13 +18,13 @@ podman run --rm \
   -w /app \
   "$IMAGE" \
   semgrep scan \
-    --config "p/javascript" \
-    --config "p/owasp-top-ten" \
-    --config "p/xss" \
-    --config "p/secrets" \
-    --json \
-    --output "$OUTPUT" \
-    index.html 2>&1 || true
+  --config "p/javascript" \
+  --config "p/owasp-top-ten" \
+  --config "p/xss" \
+  --config "p/secrets" \
+  --json \
+  --output "$OUTPUT" \
+  index.html 2>&1 || true
 
 echo ""
 if [[ -f "$OUTPUT" ]]; then

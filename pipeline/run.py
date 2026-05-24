@@ -14,6 +14,7 @@ Optional:
     PIPELINE_SCHEDULE   Cron expression (default: 0 3 * * 0  = weekly Sunday 3am)
     DRY_RUN             Set to 'true' to skip all API calls and writes
 """
+
 from __future__ import annotations
 
 import logging
@@ -67,7 +68,9 @@ def _load_config() -> dict:
             logger.error("MEILI_URL must start with http:// or https://: %r", meili_url)
             sys.exit(1)
         if _PLACEHOLDER_KEY_FRAGMENT in meili_master_key:
-            logger.error("MEILI_MASTER_KEY appears to be the placeholder value — set a real key")
+            logger.error(
+                "MEILI_MASTER_KEY appears to be the placeholder value — set a real key"
+            )
             sys.exit(1)
     return config
 
@@ -122,7 +125,9 @@ def run_pipeline(config: dict) -> None:
         enricher.enrich(event)
 
     pre_filter = len(events)
-    events = [e for e in events if not e.start_date or e.start_date >= f"{year_prefix}-01-01"]
+    events = [
+        e for e in events if not e.start_date or e.start_date >= f"{year_prefix}-01-01"
+    ]
     logger.info("Date filter: kept %d of %d", len(events), pre_filter)
 
     # ── Dedup ────────────────────────────────────────────────────────────────
@@ -170,12 +175,16 @@ def main() -> None:
 
     parts = config["schedule"].split()
     if len(parts) != 5:
-        logger.error("Invalid PIPELINE_SCHEDULE '%s' — expected 5-part cron", config["schedule"])
+        logger.error(
+            "Invalid PIPELINE_SCHEDULE '%s' — expected 5-part cron", config["schedule"]
+        )
         sys.exit(1)
 
     minute, hour, day, month, dow = parts
     try:
-        trigger = CronTrigger(minute=minute, hour=hour, day=day, month=month, day_of_week=dow)
+        trigger = CronTrigger(
+            minute=minute, hour=hour, day=day, month=month, day_of_week=dow
+        )
     except ValueError as exc:
         logger.error("Invalid PIPELINE_SCHEDULE '%s': %s", config["schedule"], exc)
         sys.exit(1)
@@ -188,6 +197,8 @@ def main() -> None:
     logger.info("Running immediately on startup…")
     try:
         run_pipeline(config)
+    except (SystemExit, KeyboardInterrupt):
+        raise
     except Exception:
         logger.exception("Startup pipeline run failed — scheduler will still start")
 

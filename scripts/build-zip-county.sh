@@ -61,9 +61,9 @@ awk -F'|' '
   END {
     for (k in best_state) printf "%s\t%s\t%s\n", k, best_state[k], best_county[k]
   }
-' "$RAW_COUNTY" | sort > "$TMP/filtered_county.tsv"
+' "$RAW_COUNTY" | sort >"$TMP/filtered_county.tsv"
 
-ROWS=$(wc -l < "$TMP/filtered_county.tsv")
+ROWS=$(wc -l <"$TMP/filtered_county.tsv")
 echo "Kept $ROWS unique ZCTAs across the 6 target states/jurisdictions."
 
 echo "Emitting ZIP→county JSON..."

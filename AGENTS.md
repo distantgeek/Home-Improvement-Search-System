@@ -2,7 +2,8 @@
 ## Agent Context Document
 
 > This file is the authoritative project brief for all AI coding assistants (Claude Code,
-> OpenCode, and others). Read it in full before touching any code. It replaces CLAUDE.md.
+> OpenCode, and others). Read it in full before touching any code. CLAUDE.md has been
+> retired — all context lives here.
 
 ---
 
@@ -39,8 +40,8 @@ browser. No terminal, no installs, no configuration files to edit.
 
 | Service | Container name | Image | Port | Role |
 |---|---|---|---|---|
-| Frontend | `hiss` | `ghcr.io/distantgeek/home-improvement-search-system:latest` | 8888 | Static httpd:alpine serving `index.html` |
-| Search index | `hiss-meilisearch` | `getmeili/meilisearch:v1.13` | 7700 (host-exposed) | Typo-tolerant REST search; browser queries directly |
+| Frontend | `hiss` | `ghcr.io/distantgeek/home-improvement-search-system:latest` | 8888 | nginx:alpine serving `index.html`; proxies `/meili/` → Meilisearch with server-side auth header injected from Docker secret |
+| Search index | `hiss-meilisearch` | `getmeili/meilisearch:v1.13` | 7700 (host-exposed) | Typo-tolerant REST search; browser queries via nginx proxy |
 | Data pipeline | `hiss-pipeline` | `ghcr.io/distantgeek/home-improvement-search-system/pipeline:latest` | — | Long-lived Python process; APScheduler runs weekly |
 | Debug UI | `hiss-datasette` | `datasetteproject/datasette:latest` | 8001 (internal only) | Read-only SQLite browser; no proxy network |
 
@@ -122,6 +123,10 @@ home-improvement-search-system/
 │   ├── retire.sh                    # Runs Retire.js — vulnerable JS library detection (OWASP A06)
 │   ├── sast.sh                      # Runs Semgrep via podman (p/javascript, p/owasp-top-ten,
 │   │                                #   p/xss, p/secrets); output: sast-results.json (gitignored)
+│   ├── bandit.sh                    # Runs Bandit — Python SAST (OWASP A04/A05, NIST SA-11)
+│   ├── pip-audit.sh                 # Runs pip-audit — Python supply chain CVE scan (OWASP A06)
+│   ├── shellcheck.sh                # Runs ShellCheck — shell script static analysis (NIST SA-11)
+│   ├── shfmt.sh                     # Runs shfmt — shell script formatter (check or fix)
 │   └── test-container.sh            # Runs Playwright E2E tests in podman container
 ├── tests/
 │   ├── e2e/
@@ -143,7 +148,8 @@ home-improvement-search-system/
 │   ├── sync.py                      # MeilisearchSync — configure_index, sync_from_store
 │   ├── run.py                       # Entry point — orchestrate, APScheduler, --dry-run
 │   ├── requirements.txt             # requests, beautifulsoup4, rapidfuzz, meilisearch,
-│   │                                #   python-dateutil, APScheduler
+│   │                                #   python-dateutil, APScheduler — pinned to latest
+│   │                                #   major.minor.* with regular CVE audits
 │   ├── fetchers/
 │   │   ├── __init__.py
 │   │   ├── serper.py                # Tier 2: Serper.dev + organics fallback
@@ -165,7 +171,7 @@ home-improvement-search-system/
 │           ├── serper_events_response.json
 │           ├── serper_organic_response.json
 │           └── eventbrite_response.json
-├── Dockerfile                       # Frontend: httpd:alpine serving index.html
+├── Dockerfile                       # Frontend: nginx:alpine serving index.html
 ├── Dockerfile.pipeline              # Pipeline: python:3.12-slim, runs as UID 1000
 ├── docker-compose.yml               # All four services + volumes + networks
 ├── .env.example                     # Template for required env vars (copy to .env)
@@ -191,7 +197,7 @@ All four services deployed and healthy on TrueNAS (`<TRUENAS_IP>`).
 
 | Service | State |
 |---|---|
-| `hiss` (frontend, port 8888) | Up — serving `index.html` via httpd:alpine |
+| `hiss` (frontend, port 8888) | Up — serving `index.html` via nginx:alpine |
 | `hiss-meilisearch` (port 7700) | Up + healthy — 1090+ events indexed |
 | `hiss-pipeline` | Up — last ran successfully, next run Sunday 3am |
 | `hiss-datasette` (internal, port 8001) | Up — immutable mode, SSH tunnel for access |
@@ -396,11 +402,48 @@ npm run retire
 # Supply chain verification (npm audit + npm audit signatures)
 npm run verify
 
-# All QA checks in one shot
+# All QA checks in one shot (JS + Python + Shell)
 npm run audit:all
 
 # E2E tests (Playwright in mcr.microsoft.com/playwright:v1.60.0-noble via podman)
 npm test
+```
+
+### Pipeline (Python) QA
+
+Python SAST runs via Bandit locally; tests use pytest with mocked HTTP. Pipeline dependencies
+are audited for CVEs via pip-audit.
+
+```bash
+# Python security scan (Bandit — OWASP A04/A05, NIST SA-11)
+npm run security:python
+# or: python3 -m bandit -r pipeline/ -x pipeline/tests/
+
+# Python supply chain CVE audit (pip-audit — OWASP A06)
+npm run security:supplychain
+# or: pip-audit -r pipeline/requirements.txt -r pipeline/requirements-dev.txt
+
+# Run pipeline unit tests (requires pipeline dependencies)
+python3 -m pytest pipeline/tests/
+# Expected: 136 passed
+```
+
+### Shell Script QA
+
+All shell scripts in `scripts/` are checked with ShellCheck and formatted with shfmt.
+
+```bash
+# Shell script static analysis (ShellCheck — NIST SA-11)
+npm run security:shell
+# or: shellcheck -x scripts/*.sh
+
+# Check formatting
+npm run fmt:check
+# or: sh scripts/shfmt.sh check
+
+# Fix formatting
+npm run fmt:shell
+# or: sh scripts/shfmt.sh fix
 ```
 
 **Accepted warnings (do not re-raise as blockers):**
@@ -604,7 +647,22 @@ city-to-county lookups. Edit here when adding new states or event types.
 | Semgrep SAST | `p/javascript`, `p/owasp-top-ten`, `p/xss`, `p/secrets` rules via podman container — 0 findings on current codebase |
 | Retire.js | OWASP A06 — scans for vulnerable JS library versions referenced in `index.html` |
 | CodeQL | GitHub Actions: weekly + on push/PR to `main`; `security-extended,security-and-quality` queries on JavaScript |
-| Supply chain audit | npm audit + npm audit signatures + SLSA provenance verification per CISA Shai-Hulud (2025-09-23) advisory |
+| Supply chain audit | npm audit + npm audit signatures + SLSA provenance verification |
+
+### Python security controls
+
+| Control | What it does |
+|---|---|
+| Bandit SAST | Runs on `pipeline/**/*.py`; OWASP A04 + A05 rules; NIST SA-11 |
+| Parameterized SQL | All SQLite queries use `?` placeholders; errors trigger `rollback()` |
+| Eventbrite URL validation | Validates scheme, host, path, and ID format before API calls |
+| pip-audit supply chain | Audits `requirements.txt` + `requirements-dev.txt` for known CVEs (OWASP A06) |
+
+### Shell script security controls
+
+| Control | What it does |
+|---|---|
+| ShellCheck | Static analysis on shell scripts; quoting/CWE coverage; NIST SA-11 |
 
 ### Accepted risk (homelab — do not re-raise as blockers)
 
@@ -797,3 +855,7 @@ inspection.
   Serper.dev as the sole data source. Do not treat Eventbrite failures as blocking errors.
 - **Do not start Phase 2 (Scrapy) without explicit instruction.** `pipeline/spiders/`
   exists as a placeholder only.
+- **Never downgrade dependencies.** Version pins in `requirements.txt` and
+  `requirements-dev.txt` must always point to the latest stable major.minor.* release.
+  Never reduce a version pin below what is currently deployed — discuss with the user
+  first if a downgrade appears necessary.

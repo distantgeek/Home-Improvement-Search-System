@@ -8,6 +8,7 @@ Key fix over the JS original: fuzzy buckets use year|county, not
 startDate|zip|city|state — events with slightly different parsed dates or
 missing ZIPs now land in the same bucket and get compared.
 """
+
 from __future__ import annotations
 
 import re
@@ -59,8 +60,8 @@ def dedup_key(event: EventItem) -> str:
         elif a_has and not b_has:
             raw = after
 
-    raw = re.sub(r"\s*:\s*.+$", "", raw)       # "Event: Sub-page"
-    raw = re.sub(r"\s*[|–]\s*.+$", "", raw)    # "Event | Site"
+    raw = re.sub(r"\s*:\s*.+$", "", raw)  # "Event: Sub-page"
+    raw = re.sub(r"\s*[|–]\s*.+$", "", raw)  # "Event | Site"
     raw = _YEAR_RE.sub("", raw)
     raw = _NON_WORD_RE.sub("", raw)
     raw = _MULTI_SPACE_RE.sub(" ", raw).strip()
@@ -105,11 +106,19 @@ def exact_dedup(events: list[EventItem]) -> list[EventItem]:
         existing = seen[key]
         new_p = _priority(event.source_type)
         ex_p = _priority(existing.source_type)
-        upgrade = new_p < ex_p or (new_p == ex_p and event.page_score > existing.page_score)
+        upgrade = new_p < ex_p or (
+            new_p == ex_p and event.page_score > existing.page_score
+        )
 
         if upgrade:
-            event.source_queries = list(dict.fromkeys(existing.source_queries + event.source_queries))
-            event.sources = existing.sources
+            event.source_queries = list(
+                dict.fromkeys(existing.source_queries + event.source_queries)
+            )
+            merged = list(existing.sources)
+            for s in event.sources:
+                if s.get("url") not in {x.get("url") for x in merged}:
+                    merged.append(s)
+            event.sources = merged
             seen[key] = event
         else:
             # Merge missing fields from the lower-priority duplicate
@@ -173,7 +182,9 @@ def fuzzy_merge_results(events: list[EventItem]) -> list[EventItem]:
 
                 p_i = _priority(events[i].source_type)
                 p_j = _priority(events[j].source_type)
-                if p_i < p_j or (p_i == p_j and events[i].page_score >= events[j].page_score):
+                if p_i < p_j or (
+                    p_i == p_j and events[i].page_score >= events[j].page_score
+                ):
                     winner, loser = i, j
                 else:
                     winner, loser = j, i

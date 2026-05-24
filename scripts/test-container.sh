@@ -18,7 +18,8 @@ python3 -m http.server "$PORT" --directory "$REPO_ROOT" &
 SERVER_PID=$!
 trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
 
-# Wait for the server to be ready
+# Wait for the server to be ready (retry up to 10 times, counter unused in body)
+# shellcheck disable=SC2034
 for i in $(seq 1 10); do
   curl -sf "http://localhost:$PORT/" -o /dev/null && break
   sleep 0.3

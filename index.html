@@ -1310,7 +1310,9 @@ async function runSearch() {
       setStatus('done', `${currentResults.length} RESULTS`);
       renderResults(applyFilters(currentResults));
     }
-  } catch {
+  } catch (err) {
+    // eslint-disable-next-line no-console -- intentional for debugging search failures; browser console is the only log target
+    console.error('Search failed:', err);
     setStatus('done', 'ERROR');
     if (!navigator.onLine) {
       showError('Network offline — check your connection and try again.');
@@ -1425,7 +1427,7 @@ function renderResults(results) {
       : '<span style="display:inline-block;width:14px"></span>';
 
     const row = `<tr>
-      <td>${chevron}<a class="event-link" href="${escHtml(e.url)}" target="_blank">${escHtml(e.name)}</a></td>
+      <td>${chevron}<a class="event-link" href="${isSafeUrl(e.url) ? escHtml(e.url) : '#'}" target="_blank"${isSafeUrl(e.url) ? '' : ' rel="nofollow"'}>${escHtml(e.name)}</a></td>
       <td class="mono">${dateStr}</td>
       <td>${escHtml(e.venue)}</td>
       <td>${escHtml(e.city)}</td>
@@ -1434,14 +1436,14 @@ function renderResults(results) {
       <td><span class="type-badge ${typeClass}">${escHtml(e.type.toUpperCase())}</span></td>
       <td class="mono">${escHtml(e.attendance)}</td>
       <td><span class="coverage-dot ${e.coverage}">${covLabel}</span></td>
-      <td><a class="event-link" href="${escHtml(e.url)}" target="_blank" title="View event">↗</a></td>
+      <td><a class="event-link" href="${isSafeUrl(e.url) ? escHtml(e.url) : '#'}" target="_blank" title="View event">↗</a></td>
     </tr>`;
 
     if (!hasAlts) return row;
 
     const altLinks = e.altUrls.map(u => {
       const srcLabel = u.sourceType === 'eventbrite' ? 'Eventbrite' : u.sourceType === 'serper_organic' ? 'Google Organic' : 'Google Events';
-      return `<a href="${escHtml(u.url)}" target="_blank">${escHtml(u.url)}<span class="alt-url-source">[${srcLabel}]</span></a>`;
+      return `<a href="${isSafeUrl(u.url) ? escHtml(u.url) : '#'}" target="_blank">${escHtml(u.url)}<span class="alt-url-source">[${srcLabel}]</span></a>`;
     }).join('');
 
     return row + `<tr class="alt-urls-row" data-parent="${idx}" style="display:none"><td colspan="10">
@@ -1462,6 +1464,10 @@ function escHtml(s) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function isSafeUrl(url) {
+  return /^https?:\/\//i.test(url);
+}
+
 // ═══════════════════════════════════════════
 //  CSV EXPORT
 // ═══════════════════════════════════════════
@@ -1480,7 +1486,12 @@ function exportCSV() {
     e.coverage, e.sourceType || '', e.url,
     `"${(e.altUrls || []).map(u => u.url).join(' | ').replace(/"/g, '""')}"`
   ]);
-  const csv  = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  // Prevent formula injection: prefix fields starting with =, +, -, @
+  const csvHeaders = headers.join(',');
+  const csvRows   = rows.map(r => r.map(cell => {
+    return /^[=+\-@\t\r\n]/.test(cell) ? "'" + cell : cell;
+  }));
+  const csv  = [csvHeaders, ...csvRows.map(r => r.join(','))].join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
   const a    = document.createElement('a');
   a.href     = URL.createObjectURL(blob);

@@ -1,4 +1,5 @@
 """Tests for pipeline.sync — Meilisearch sync (mocked HTTP)."""
+
 import json
 
 import pytest
@@ -90,7 +91,6 @@ class TestRowToMeiliDoc:
         assert doc["sourceQueries"] == []
 
 
-@responses_lib.activate
 class TestMeilisearchSync:
     MEILI_URL = "http://meili-test:7700"
     MASTER_KEY = "test-master-key"
@@ -107,13 +107,24 @@ class TestMeilisearchSync:
         responses_lib.add(
             responses_lib.POST,
             f"{self.MEILI_URL}/indexes",
-            json={"taskUid": 1, "indexUid": "events", "status": "enqueued"},
+            json={
+                "taskUid": 1,
+                "indexUid": "events",
+                "status": "enqueued",
+                "type": "indexCreation",
+                "enqueuedAt": "2026-01-01T00:00:00.000Z",
+            },
             status=202,
         )
         responses_lib.add(
             responses_lib.GET,
             f"{self.MEILI_URL}/tasks/1",
-            json={"uid": 1, "status": "succeeded"},
+            json={
+                "uid": 1,
+                "status": "succeeded",
+                "type": "indexCreation",
+                "enqueuedAt": "2026-01-01T00:00:00.000Z",
+            },
             status=200,
         )
 
@@ -121,13 +132,24 @@ class TestMeilisearchSync:
         responses_lib.add(
             responses_lib.PATCH,
             f"{self.MEILI_URL}/indexes/events/settings",
-            json={"taskUid": 2, "status": "enqueued"},
+            json={
+                "taskUid": 2,
+                "indexUid": "events",
+                "status": "enqueued",
+                "type": "settingsUpdate",
+                "enqueuedAt": "2026-01-01T00:00:00.000Z",
+            },
             status=202,
         )
         responses_lib.add(
             responses_lib.GET,
             f"{self.MEILI_URL}/tasks/2",
-            json={"uid": 2, "status": "succeeded"},
+            json={
+                "uid": 2,
+                "status": "succeeded",
+                "type": "settingsUpdate",
+                "enqueuedAt": "2026-01-01T00:00:00.000Z",
+            },
             status=200,
         )
 
@@ -135,21 +157,34 @@ class TestMeilisearchSync:
         responses_lib.add(
             responses_lib.POST,
             f"{self.MEILI_URL}/indexes/events/documents",
-            json={"taskUid": 3, "status": "enqueued"},
+            json={
+                "taskUid": 3,
+                "indexUid": "events",
+                "status": "enqueued",
+                "type": "documentAdditionOrUpdate",
+                "enqueuedAt": "2026-01-01T00:00:00.000Z",
+            },
             status=202,
         )
         responses_lib.add(
             responses_lib.GET,
             f"{self.MEILI_URL}/tasks/3",
-            json={"uid": 3, "status": "succeeded"},
+            json={
+                "uid": 3,
+                "status": "succeeded",
+                "type": "documentAdditionOrUpdate",
+                "enqueuedAt": "2026-01-01T00:00:00.000Z",
+            },
             status=200,
         )
 
+    @responses_lib.activate
     def test_health_returns_true_when_available(self):
         self._mock_health()
         syncer = MeilisearchSync(self.MEILI_URL, self.MASTER_KEY)
         assert syncer.health() is True
 
+    @responses_lib.activate
     def test_sync_from_store_pushes_unsynced_events(self, tmp_db):
         self._mock_create_index()
         self._mock_update_settings()
@@ -167,6 +202,7 @@ class TestMeilisearchSync:
         assert store.get_unsynced() == []
         store.close()
 
+    @responses_lib.activate
     def test_sync_from_store_skips_when_nothing_unsynced(self, tmp_db):
         store = Store(tmp_db)
         syncer = MeilisearchSync(self.MEILI_URL, self.MASTER_KEY)

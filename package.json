@@ -8,8 +8,13 @@
     "lint": "sh scripts/lint.sh",
     "sast": "sh scripts/sast.sh",
     "retire": "sh scripts/retire.sh",
+    "security:python": "sh scripts/bandit.sh",
+    "security:shell": "sh scripts/shellcheck.sh",
+    "security:supplychain": "sh scripts/pip-audit.sh",
+    "fmt:shell": "sh scripts/shfmt.sh fix",
+    "fmt:check": "sh scripts/shfmt.sh check",
     "verify": "npm audit && npm audit signatures",
-    "audit:all": "npm run verify && npm run lint && npm run retire && npm run sast"
+    "audit:all": "npm run verify && npm run lint && npm run sast && npm run retire && npm run security:python && npm run security:supplychain && npm run security:shell && npm run fmt:check"
   },
   "devDependencies": {
     "@eslint/js": "9.39.4",
