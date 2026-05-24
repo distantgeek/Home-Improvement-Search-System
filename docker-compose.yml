@@ -6,10 +6,10 @@ services:
     container_name: hiss
     restart: unless-stopped
     secrets:
-      - meili_key
+      - meili_auth_header
     networks:
       - proxy
-      - internal    # needs internal to reach hiss-meilisearch for proxy_pass
+      - internal    # needs internal to reach hiss-meilisearch for nginx proxy_pass
 
   # ── Search index ─────────────────────────────────────────────────────────────
   hiss-meilisearch:
@@ -83,8 +83,11 @@ services:
       - internal
 
 secrets:
-  meili_key:
-    file: ${MEILI_SECRET_FILE:-./secrets/meili_key}
+  # File must contain exactly one nginx directive:
+  #   proxy_set_header Authorization "Bearer <key-value>";
+  # nginx includes it natively — no scripts, no env vars.
+  meili_auth_header:
+    file: ${MEILI_SECRET_FILE:-./secrets/meili_auth_header}
 
 volumes:
   meilisearch_data:
