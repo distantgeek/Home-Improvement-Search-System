@@ -22,8 +22,8 @@ from Serper.dev (Google Events), normalizes and deduplicates them, stores them i
 and indexes them in Meilisearch. Events with Eventbrite URLs found via Serper are
 additionally enriched with structured address data from the Eventbrite Event Retrieval
 API (when the API key has the required scope — see Section 8). A static HTML frontend
-(currently still calling Serper directly — Phase 1 will change this) lets the coordinator
-filter by served counties and export results to CSV.
+queries Meilisearch directly, letting the coordinator filter by served counties and export
+results to CSV.
 
 **End user:** A non-technical event coordinator. The frontend must work by opening a
 browser. No terminal, no installs, no configuration files to edit.
@@ -174,7 +174,7 @@ home-improvement-search-system/
 ├── package.json                     # Dev dependencies + npm scripts (lint, sast, retire, test, audit:all)
 ├── package-lock.json                # Locked dependency tree
 ├── .npmrc                           # save-exact=true, package-lock=true, audit=true
-├── index.html                       # Complete frontend app (currently calls Serper directly)
+├── index.html                       # Complete frontend app (queries Meilisearch directly)
 ├── AGENTS.md                        # This file — primary agent context document
 ├── README.md                        # Human-readable setup and usage
 └── LICENSE
@@ -192,7 +192,7 @@ All four services deployed and healthy on TrueNAS (`192.168.2.148`).
 | Service | State |
 |---|---|
 | `hiss` (frontend, port 8888) | Up — serving `index.html` via httpd:alpine |
-| `hiss-meilisearch` (port 7700) | Up + healthy — 980+ events indexed |
+| `hiss-meilisearch` (port 7700) | Up + healthy — 1090+ events indexed |
 | `hiss-pipeline` | Up — last ran successfully, next run Sunday 3am |
 | `hiss-datasette` (internal, port 8001) | Up — immutable mode, SSH tunnel for access |
 
@@ -207,9 +207,6 @@ Completed work:
   in `.env` on TrueNAS. Safe to embed in frontend HTML (search-only, cannot write).
 - Volume permissions fixed (`pipeline_data` chowned to UID 1000)
 - Datasette opened in immutable mode (`-i`) — no WAL lock file writes needed
-
-The existing frontend (`index.html`) still calls Serper.dev directly from the browser.
-Phase 0 was purely additive; the coordinator's workflow is unchanged.
 
 ### Pre-Phase-1 toolchain — COMPLETE ✓
 
@@ -243,16 +240,24 @@ Committed as `00b55f4` on `main`.
   available at runtime. All JS tooling must be npm packages (project `node_modules`) or
   containerized via podman. This constraint applies to all future tooling additions.
 
-### Phase 1 — NEXT (ready to start)
+### Phase 1 — COMPLETE ✓
 
-Migrate `index.html` to query Meilisearch instead of Serper.dev.
-**See Section 10 for the complete spec and kickoff checklist.**
+Migrated `index.html` to query Meilisearch instead of Serper.dev.
+All Serper-specific code removed. County list now driven by `facetDistribution` returned
+by Meilisearch. Event count displayed in topbar via `/indexes/events/stats`.
+Deployed to TrueNAS and verified: container healthy, HTTP 200, 1090 docs in index.
 
-### Phase 2 — not started
+**Frontend API key in use:** `REDACTED_MEILI_KEY`
+(HISS Frontend Key — `actions: ["search", "stats.get"]`; created because the default
+search-only key lacks `stats.get` permission needed for the event count display).
+
+### Phase 2 — NEXT (ready to start when instructed)
 
 Add Scrapy spiders (`pipeline/spiders/`) for curated sources: state fair official sites,
 home show association pages, regional aggregators. Output feeds the same normalize →
 enrich → dedup → store → sync chain.
+
+**Do not start Phase 2 without explicit user instruction.**
 
 ---
 
@@ -611,10 +616,9 @@ city-to-county lookups. Edit here when adding new states or event types.
 
 ---
 
-## 10. Phase 1: Frontend Migration
+## 10. Phase 1: Frontend Migration — COMPLETE ✓
 
-> **Starting Phase 1?** Read this section top-to-bottom before touching any code.
-> Everything you need is here — no discovery work required.
+> This section is preserved as a reference for what was built. Phase 1 is deployed and live.
 
 **Goal:** Replace the Serper.dev call path in `index.html` with Meilisearch queries.
 The backend already has the data. The frontend just needs to ask Meilisearch instead of
@@ -625,13 +629,14 @@ calling Serper directly from the browser.
 | Item | Value |
 |---|---|
 | Meilisearch host | `http://192.168.2.148:7700` |
-| Search-only key | `REDACTED_MEILI_KEY` |
+| HISS Frontend Key | `REDACTED_MEILI_KEY` |
 | Search endpoint | `POST http://192.168.2.148:7700/indexes/events/search` |
 | Stats endpoint | `GET http://192.168.2.148:7700/indexes/events/stats` |
 | Auth header | `Authorization: Bearer REDACTED_MEILI_KEY` |
 
-The search-only key has `actions: ["search"]` only — it cannot write, delete, or
-configure the index. Safe to hardcode in `index.html`.
+The HISS Frontend Key has `actions: ["search", "stats.get"]` — it cannot write, delete,
+or configure the index. Safe to hardcode in `index.html`. The default search-only key
+The Meilisearch default search-only key was not used because it lacks `stats.get` permission.
 
 ### Meilisearch document schema
 
