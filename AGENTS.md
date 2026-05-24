@@ -635,9 +635,9 @@ calling Serper directly from the browser.
 | Auth header | `Authorization: Bearer <see MEILI_KEY in TrueNAS .env>` |
 
 The HISS Frontend Key has `actions: ["search", "stats.get"]` — it cannot write, delete,
-or configure the index. Injected into the container at startup via `MEILI_KEY` env var
-(see TrueNAS `.env`). The default search-only key was not used because it lacks `stats.get`
-for the event count display.
+or configure the index. Delivered to nginx via a Docker secret file; never sent to the
+browser. The Meilisearch default search-only key was not used because it lacks `stats.get`
+permission needed for the event count display.
 
 ### Meilisearch document schema
 
