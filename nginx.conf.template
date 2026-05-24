@@ -1,0 +1,26 @@
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Proxy Meilisearch API — Authorization header added server-side.
+    # ${MEILI_KEY} is substituted by envsubst at container startup from the
+    # Docker secret file; it never appears in HTML or JavaScript sent to the browser.
+    location /meili/ {
+        proxy_pass         http://hiss-meilisearch:7700/;
+        proxy_set_header   Authorization "Bearer ${MEILI_KEY}";
+        proxy_set_header   Host $http_host;
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_hide_header  Server;
+
+        # Only allow search and stats — block admin endpoints
+        limit_except POST GET {
+            deny all;
+        }
+    }
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+}

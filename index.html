@@ -1191,10 +1191,8 @@ function getSelectedTypes() {
 }
 
 // ═══════════════════════════════════════════
-//  MEILISEARCH
+//  MEILISEARCH  (proxied via nginx — no key in client)
 // ═══════════════════════════════════════════
-const MEILI_URL = '__MEILI_URL__';
-const MEILI_KEY = '__MEILI_KEY__';
 
 async function searchMeilisearch(state, eventTypes) {
   const filterParts = [];
@@ -1212,12 +1210,9 @@ async function searchMeilisearch(state, eventTypes) {
   };
   if (filterParts.length) body.filter = filterParts.join(' AND ');
 
-  const resp = await fetch(`${MEILI_URL}/indexes/events/search`, {
+  const resp = await fetch('/meili/indexes/events/search', {
     method:  'POST',
-    headers: {
-      'Authorization': `Bearer ${MEILI_KEY}`,
-      'Content-Type':  'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!resp.ok) {
@@ -1230,9 +1225,7 @@ async function searchMeilisearch(state, eventTypes) {
 
 async function fetchLastUpdated() {
   try {
-    const resp = await fetch(`${MEILI_URL}/indexes/events/stats`, {
-      headers: { 'Authorization': `Bearer ${MEILI_KEY}` },
-    });
+    const resp = await fetch('/meili/indexes/events/stats');
     if (!resp.ok) return;
     const stats   = await resp.json();
     const countEl = document.getElementById('eventCount');

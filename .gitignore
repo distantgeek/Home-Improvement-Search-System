@@ -19,6 +19,9 @@ npm-debug.log*
 *.key
 secrets.json
 
+# Docker secret files — never commit actual secrets
+secrets/
+
 # Python
 __pycache__/
 *.py[cod]
