@@ -83,32 +83,25 @@
     gap: 12px;
   }
 
-  .api-key-wrap {
+  .data-freshness {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     background: var(--surface2);
     border: 1px solid var(--border);
     border-radius: 6px;
-    padding: 5px 10px;
-  }
-  .api-key-wrap label {
+    padding: 5px 12px;
     font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text-muted);
+    font-size: 11px;
+  }
+  .freshness-label {
+    color: var(--text-dim);
     letter-spacing: .08em;
-    white-space: nowrap;
+    font-size: 10px;
   }
-  .api-key-wrap input {
-    background: none;
-    border: none;
-    color: var(--teal);
-    font-family: var(--font-mono);
-    font-size: 12px;
-    width: 200px;
-    outline: none;
-  }
-  .api-key-wrap input::placeholder { color: var(--text-dim); }
+  .freshness-count { color: var(--teal); font-weight: 500; }
+  .freshness-sep   { color: var(--border2); }
+  .freshness-date  { color: var(--text-muted); }
 
   .status-pill {
     font-family: var(--font-mono);
@@ -805,9 +798,12 @@
 <nav class="topbar">
   <div class="brand">HISS <span>Home Improvement Show Search</span></div>
   <div class="topbar-right">
-    <div class="api-key-wrap">
-      <label>SERPER KEY</label>
-      <input type="password" id="apiKeyInput" placeholder="paste key here..." autocomplete="off">
+    <div class="data-freshness">
+      <span class="freshness-label">EVENTS</span>
+      <span class="freshness-count" id="eventCount">—</span>
+      <span class="freshness-sep">·</span>
+      <span class="freshness-label">UPDATED</span>
+      <span class="freshness-date" id="lastUpdated">—</span>
     </div>
     <div class="status-pill" id="statusPill">READY</div>
   </div>
@@ -839,14 +835,14 @@
       <div class="section-label">
         FILTER BY COUNTY
         <div class="label-actions">
-          <button class="label-btn" id="selectAllBtn">All</button>
-          <button class="label-btn" id="clearAllBtn">None</button>
+          <button class="label-btn" id="selectAllBtn" style="visibility:hidden">All</button>
+          <button class="label-btn" id="clearAllBtn" style="visibility:hidden">None</button>
         </div>
       </div>
       <input class="county-search" type="text" id="countySearch" placeholder="Filter counties...">
       <div class="county-list" id="countyList">
         <div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);padding:8px 6px;">
-          Select a state first
+          Run a search to see counties
         </div>
       </div>
     </div>
@@ -913,34 +909,6 @@
       </div>
     </div>
 
-    <!-- Supplemental Sources -->
-    <div class="filter-section">
-      <div class="section-label">SUPPLEMENTAL SOURCES</div>
-      <div class="type-list">
-        <div class="type-item">
-          <input type="checkbox" id="suppEventbrite">
-          <label for="suppEventbrite">Eventbrite listings</label>
-        </div>
-        <div class="type-item">
-          <input type="checkbox" id="suppFacebook">
-          <label for="suppFacebook">Facebook Events</label>
-        </div>
-      </div>
-      <div style="font-size:10px;color:var(--text-dim);margin-top:6px;font-family:var(--font-mono);line-height:1.5;">
-        Searches those sites via Google. Each supplement adds ~2–5 extra queries per state.
-      </div>
-    </div>
-
-    <!-- Custom Queries -->
-    <div class="filter-section">
-      <div class="section-label">CUSTOM QUERIES</div>
-      <textarea class="custom-query-input" id="customQueries"
-        placeholder="One query per line&#10;e.g. boat expo Maryland 2026&#10;home and hearth show Baltimore"></textarea>
-      <div style="font-size:10px;color:var(--text-dim);margin-top:5px;font-family:var(--font-mono);line-height:1.5;">
-        Added to every run. Saved automatically.
-      </div>
-    </div>
-
     <!-- Service Area Filter -->
     <div class="filter-section">
       <div class="section-label">SERVICE AREA FILTER</div>
@@ -988,14 +956,13 @@
         <thead>
           <tr>
             <th data-col="name">EVENT NAME</th>
-            <th data-col="date">DATES</th>
+            <th data-col="startDate">DATES</th>
             <th data-col="venue">VENUE</th>
             <th data-col="city">CITY</th>
             <th data-col="county">COUNTY</th>
             <th data-col="zip">ZIP</th>
             <th data-col="type">TYPE</th>
             <th data-col="attendance">ATTENDANCE</th>
-            <th data-col="contact">CONTACT</th>
             <th data-col="coverage">COVERAGE</th>
             <th>LINK</th>
           </tr>
@@ -1005,7 +972,7 @@
 
       <div class="table-placeholder" id="tablePlaceholder">
         <div class="placeholder-icon">🏠</div>
-        <div class="placeholder-text">Select a state and counties, then run a search</div>
+        <div class="placeholder-text">Select a state and click Run Search</div>
       </div>
     </div>
   </main>
@@ -1068,13 +1035,9 @@ const STATE_NAMES = {
 let currentResults = [];
 let coverageFilter = 'all';
 let servedSet      = new Set();
-let sortCol        = 'date';
+let sortCol        = 'startDate';
 let sortDir        = 1;
-let zipCounty      = null;
-let cityCounty     = null;
-let countyNameRe   = null;
 let searchRunning  = false;
-let stopRequested  = false;
 
 // ═══════════════════════════════════════════
 //  INIT
@@ -1083,19 +1046,10 @@ document.addEventListener('DOMContentLoaded', () => {
   loadFromStorage();
   setDefaultDates();
   bindEvents();
-  loadZipCounty();
+  fetchLastUpdated();
 });
 
 function loadFromStorage() {
-  const key = localStorage.getItem('hiss.serperApiKey');
-  if (key) document.getElementById('apiKeyInput').value = key;
-
-  const savedQueries = localStorage.getItem('hiss.customQueries');
-  if (savedQueries) document.getElementById('customQueries').value = savedQueries;
-  document.getElementById('customQueries').addEventListener('input', e => {
-    localStorage.setItem('hiss.customQueries', e.target.value);
-  });
-
   const raw = localStorage.getItem('hiss.servedCounties');
   if (raw) {
     try {
@@ -1106,28 +1060,6 @@ function loadFromStorage() {
   }
 }
 
-async function loadZipCounty() {
-  try {
-    const r = await fetch('data/zip-county.json');
-    if (r.ok) zipCounty = await r.json();
-  } catch { /* optional data file — ignore fetch errors */ }
-  try {
-    const r = await fetch('data/city-county.json');
-    if (r.ok) cityCounty = await r.json();
-  } catch { /* optional data file — ignore fetch errors */ }
-  buildCountyNameRegex();
-}
-
-function buildCountyNameRegex() {
-  const names = [];
-  for (const state of STATE_ORDER) {
-    for (const county of COUNTIES[state]) {
-      names.push(county.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-    }
-  }
-  names.sort((a, b) => b.length - a.length);
-  countyNameRe = new RegExp('\\b(' + names.join('|') + ')\\b', 'i');
-}
 
 function setDefaultDates() {
   const today     = new Date();
@@ -1138,24 +1070,33 @@ function setDefaultDates() {
 }
 
 function bindEvents() {
-  document.getElementById('apiKeyInput').addEventListener('change', e => {
-    localStorage.setItem('hiss.serperApiKey', e.target.value.trim());
-  });
-
-  document.getElementById('stateSelect').addEventListener('change', e => {
-    populateCounties(e.target.value);
-    document.getElementById('countySearch').value = '';
+  document.getElementById('stateSelect').addEventListener('change', () => {
+    // Reset county list — will be repopulated after next search
+    const list = document.getElementById('countyList');
+    list.innerHTML = '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);padding:8px 6px;">Run a search to see counties</div>';
+    document.getElementById('countySearch').value              = '';
+    document.getElementById('selectAllBtn').style.visibility   = 'hidden';
+    document.getElementById('clearAllBtn').style.visibility    = 'hidden';
   });
 
   document.getElementById('countySearch').addEventListener('input', e => {
     filterCountyList(e.target.value);
   });
 
+  // County checkbox changes re-filter existing results without re-querying
+  document.getElementById('countyList').addEventListener('change', e => {
+    if (e.target.type === 'checkbox' && currentResults.length) {
+      renderResults(applyFilters(currentResults));
+    }
+  });
+
   document.getElementById('selectAllBtn').addEventListener('click', () => {
     document.querySelectorAll('#countyList input[type="checkbox"]').forEach(c => c.checked = true);
+    if (currentResults.length) renderResults(applyFilters(currentResults));
   });
   document.getElementById('clearAllBtn').addEventListener('click', () => {
     document.querySelectorAll('#countyList input[type="checkbox"]').forEach(c => c.checked = false);
+    if (currentResults.length) renderResults(applyFilters(currentResults));
   });
 
   document.querySelectorAll('.cov-btn').forEach(btn => {
@@ -1168,8 +1109,7 @@ function bindEvents() {
   });
 
   document.getElementById('runSearchBtn').addEventListener('click', () => {
-    if (searchRunning) stopRequested = true;
-    else runSearch();
+    if (!searchRunning) runSearch();
   });
   document.getElementById('exportBtn').addEventListener('click', exportCSV);
 
@@ -1198,37 +1138,32 @@ function bindEvents() {
 // ═══════════════════════════════════════════
 //  COUNTIES SIDEBAR
 // ═══════════════════════════════════════════
-function populateCounties(state) {
+function populateCountiesFromFacets(state, countyFacet) {
   const list    = document.getElementById('countyList');
   const allBtn  = document.getElementById('selectAllBtn');
   const noneBtn = document.getElementById('clearAllBtn');
 
-  if (!state) {
-    list.innerHTML = '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);padding:8px 6px;">Select a state first</div>';
-    return;
-  }
-  if (state === 'ALL') {
-    const total = STATE_ORDER.reduce((n, s) => n + COUNTIES[s].length, 0);
-    // eslint-disable-next-line no-unsanitized/property -- total is a number from trusted constant
-    list.innerHTML = `<div style="font-family:var(--font-mono);font-size:11px;color:var(--teal);padding:8px 6px;line-height:1.6;">
-      All ${total} counties across all 6 states selected.<br>
-      <span style="color:var(--text-dim);">Switch to a single state to pick specific counties.</span>
-    </div>`;
+  list.innerHTML = '';
+  const entries = Object.entries(countyFacet).sort(([a], [b]) => a.localeCompare(b));
+
+  if (!entries.length) {
+    list.innerHTML = '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-dim);padding:8px 6px;">No counties in results</div>';
     allBtn.style.visibility  = 'hidden';
     noneBtn.style.visibility = 'hidden';
     return;
   }
+
   allBtn.style.visibility  = 'visible';
   noneBtn.style.visibility = 'visible';
-  list.innerHTML = '';
-  COUNTIES[state].forEach(county => {
+
+  entries.forEach(([county, count]) => {
     const id   = 'c_' + county.replace(/\W+/g, '_');
     const item = document.createElement('div');
     item.className      = 'county-item';
     item.dataset.county = county.toLowerCase();
-    // eslint-disable-next-line no-unsanitized/property -- id uses .replace(/\W+/g,'_') (word chars only); county escaped with escHtml
+    // eslint-disable-next-line no-unsanitized/property -- id uses .replace(/\W+/g,'_'); county escaped; count is a number
     item.innerHTML = `<input type="checkbox" id="${id}" value="${escHtml(county)}" checked>
-                      <label for="${id}">${escHtml(county)}</label>`;
+                      <label for="${id}">${escHtml(county)} <span style="color:var(--text-dim);font-size:10px;">(${count})</span></label>`;
     list.appendChild(item);
   });
 }
@@ -1258,670 +1193,153 @@ function getSelectedTypes() {
   return types;
 }
 
-function getSelectedSupplements() {
-  const s = [];
-  if (document.getElementById('suppEventbrite').checked) s.push('eventbrite');
-  if (document.getElementById('suppFacebook').checked)   s.push('facebook');
-  return s;
+// ═══════════════════════════════════════════
+//  MEILISEARCH
+// ═══════════════════════════════════════════
+const MEILI_URL = 'http://192.168.2.148:7700';
+const MEILI_KEY = 'REDACTED_MEILI_KEY';
+
+async function searchMeilisearch(state, eventTypes) {
+  const filterParts = [];
+  if (state && state !== 'ALL') filterParts.push(`state = '${state}'`);
+  if (eventTypes.length && eventTypes.length < Object.keys(EVENT_TYPES).length) {
+    const typeList = eventTypes.map(t => `'${t}'`).join(', ');
+    filterParts.push(`eventType IN [${typeList}]`);
+  }
+  const body = {
+    q: '',
+    limit: 1000,
+    sort: ['startDate:asc'],
+    facets: ['county', 'eventType', 'state', 'sourceType'],
+    attributesToRetrieve: ['*'],
+  };
+  if (filterParts.length) body.filter = filterParts.join(' AND ');
+
+  const resp = await fetch(`${MEILI_URL}/indexes/events/search`, {
+    method:  'POST',
+    headers: {
+      'Authorization': `Bearer ${MEILI_KEY}`,
+      'Content-Type':  'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const err = new Error(`Meilisearch HTTP ${resp.status}`);
+    err.status = resp.status;
+    throw err;
+  }
+  return resp.json();
+}
+
+async function fetchLastUpdated() {
+  try {
+    const resp = await fetch(`${MEILI_URL}/indexes/events/stats`, {
+      headers: { 'Authorization': `Bearer ${MEILI_KEY}` },
+    });
+    if (!resp.ok) return;
+    const stats    = await resp.json();
+    const countEl  = document.getElementById('eventCount');
+    const updEl    = document.getElementById('lastUpdated');
+    if (countEl) countEl.textContent = stats.numberOfDocuments != null
+      ? stats.numberOfDocuments.toLocaleString() : '—';
+    if (updEl) updEl.textContent = stats.lastUpdate
+      ? new Date(stats.lastUpdate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      : '—';
+  } catch { /* non-blocking — freshness display stays at — */ }
 }
 
 // ═══════════════════════════════════════════
 //  SEARCH
 // ═══════════════════════════════════════════
 async function runSearch() {
-  const apiKey = document.getElementById('apiKeyInput').value.trim();
-  if (!apiKey) { showError('No API key — paste your Serper.dev key in the field above.'); return; }
-
-  const state   = document.getElementById('stateSelect').value;
+  const state = document.getElementById('stateSelect').value;
   if (!state) { showError('Please select a state.'); return; }
 
-  const counties = getSelectedCounties();
-  if (state !== 'ALL' && !counties.length) { showError('Please select at least one county.'); return; }
-
-  const types       = getSelectedTypes();
+  const types = getSelectedTypes();
   if (!types.length) { showError('Select at least one event type.'); return; }
 
-  const supplements = getSelectedSupplements();
-
-  if (!zipCounty) {
-    try {
-      const r = await fetch('data/zip-county.json');
-      if (!r.ok) throw new Error();
-      zipCounty = await r.json();
-    } catch {
-      showError('Cannot load data/zip-county.json — serve this folder with <code>python3 -m http.server 8000</code> and open <a href="http://localhost:8000" target="_blank" style="color:inherit">http://localhost:8000</a>');
-      return;
-    }
-  }
-
   clearError();
-
-  const queries = buildAllQueries(state, counties, types, supplements);
-  // Append custom queries, deduping against already-generated ones.
-  const customRaw = document.getElementById('customQueries').value;
-  customRaw.split('\n').map(q => q.trim()).filter(Boolean).forEach(q => {
-    if (!queries.includes(q)) queries.push(q);
-  });
-  if (!queries.length) { showError('No queries generated — check your selections.'); return; }
-
-  if (queries.length > 50) {
-    const pct = Math.round(queries.length / 2500 * 100);
-    const ok  = confirm(`This search will run ${queries.length} queries, using ~${pct}% of your 2,500 monthly Serper credits.\n\nContinue?`);
-    if (!ok) return;
-  }
-
   searchRunning = true;
-  stopRequested = false;
 
   const runBtn = document.getElementById('runSearchBtn');
-  runBtn.innerHTML  = '■ &nbsp;STOP';
-  runBtn.classList.add('stop');
+  runBtn.disabled = true;
   document.getElementById('loadingBar').style.display       = 'block';
   document.getElementById('resultsTable').style.display     = 'none';
   document.getElementById('tablePlaceholder').style.display = 'flex';
   document.getElementById('tablePlaceholder').innerHTML     =
-    '<div class="placeholder-icon">🔍</div><div class="placeholder-text">Starting search…</div>';
-  document.getElementById('exportBtn').disabled = true;
+    '<div class="placeholder-icon">🔍</div><div class="placeholder-text">Searching…</div>';
+  document.getElementById('exportBtn').disabled  = true;
+  document.getElementById('queryTags').innerHTML = '';
 
-  const tagArea  = document.getElementById('queryTags');
-  const dateFrom = document.getElementById('dateFrom').value;
-  const dateTo   = document.getElementById('dateTo').value;
-  const dedupe = new Map();
-  let   results = [];
+  try {
+    const data   = await searchMeilisearch(state, types);
+    const hits   = data.hits || [];
+    const facets = data.facetDistribution || {};
 
-  for (let i = 0; i < queries.length; i++) {
-    if (stopRequested) break;
-    const q = queries[i];
+    // Populate county list from facets (post-search client-side filter)
+    populateCountiesFromFacets(state, facets.county || {});
 
-    setStatus('running', `${i + 1} / ${queries.length}`);
-    document.getElementById('resultCount').textContent =
-      `Running query ${i + 1} of ${queries.length}: ${q}`;
+    // Transform hits to the shape renderResults() expects
+    let results = hits.map(hit => ({
+      ...hit,
+      url:      hit.primaryUrl || '',
+      type:     hit.eventType  || '',
+      altUrls:  hit.sources    || [],
+      contact:  '',
+      coverage: getCoverage(hit.state, hit.county),
+    }));
 
-    tagArea.innerHTML = '';
-    const tag = document.createElement('div');
-    tag.className   = 'query-tag ran';
-    tag.textContent = q;
-    tagArea.appendChild(tag);
-    if (queries.length - i - 1 > 0) {
-      const rem = document.createElement('div');
-      rem.className   = 'query-tag';
-      rem.textContent = `${queries.length - i - 1} remaining`;
-      tagArea.appendChild(rem);
+    // Client-side date range filter
+    const dateFrom = document.getElementById('dateFrom').value;
+    const dateTo   = document.getElementById('dateTo').value;
+    if (dateFrom) results = results.filter(r => !r.startDate || r.startDate >= dateFrom);
+    if (dateTo)   results = results.filter(r => !r.startDate || r.startDate <= dateTo);
+
+    currentResults = results;
+
+    // Source breakdown pills
+    const counts      = {};
+    const labels      = { serper_events: 'Google Events', serper_organic: 'Google Organic', eventbrite: 'Eventbrite' };
+    const cssClassMap = { serper_events: 'google', serper_organic: 'google', eventbrite: 'eventbrite' };
+    const VALID_SOURCES = new Set(['serper_events', 'serper_organic', 'eventbrite']);
+    currentResults.forEach(r => {
+      if (VALID_SOURCES.has(r.sourceType)) counts[r.sourceType] = (counts[r.sourceType] || 0) + 1;
+    });
+    const pills = Object.entries(counts)
+      .filter(([, n]) => n > 0)
+      .map(([src, n]) => `<span class="source-pill ${cssClassMap[src] || src}">${labels[src]}: ${n}</span>`)
+      .join('');
+    const pillsEl = document.getElementById('sourcePills');
+    // eslint-disable-next-line no-unsanitized/property -- src from VALID_SOURCES whitelist; labels/classes from hardcoded objects; n is a number
+    pillsEl.innerHTML     = pills;
+    pillsEl.style.display = Object.keys(counts).length > 1 ? 'flex' : 'none';
+
+    if (!currentResults.length) {
+      setStatus('done', '0 RESULTS');
+      document.getElementById('resultCount').textContent    = 'No events found — try a broader date range or different event types';
+      document.getElementById('tablePlaceholder').style.display = 'flex';
+      document.getElementById('tablePlaceholder').innerHTML =
+        '<div class="placeholder-icon">🔍</div><div class="placeholder-text">No events found — try a broader date range or different event types</div>';
+    } else {
+      setStatus('done', `${currentResults.length} RESULTS`);
+      renderResults(applyFilters(currentResults));
     }
-
-    let events  = [];
-    let retried = false;
-
-    while (true) {
-      try {
-        events = await callSerper(apiKey, q);
-        break;
-      } catch (err) {
-        if (err.status === 401) {
-          showError('Invalid API key — check your Serper.dev key and try again.');
-          stopRequested = true;
-          break;
-        }
-        if (err.status === 429 && !retried) {
-          retried = true;
-          setStatus('running', 'Rate limited…');
-          document.getElementById('resultCount').textContent =
-            `Rate limit hit — waiting 30 seconds before retrying query ${i + 1}…`;
-          await delay(30000);
-          if (stopRequested) break;
-          continue;
-        }
-        if (!navigator.onLine) {
-          showError('Network offline — check your connection, then run the search again.');
-          stopRequested = true;
-        } else {
-          // eslint-disable-next-line no-console -- operational failure log; non-sensitive
-          console.warn('Query failed (skipping):', q, err.message || err.status);
-        }
-        break;
-      }
+  } catch {
+    setStatus('done', 'ERROR');
+    if (!navigator.onLine) {
+      showError('Network offline — check your connection and try again.');
+    } else {
+      showError('Could not reach the search index. Make sure you are on the local network (192.168.2.x).');
     }
-
-    if (stopRequested) break;
-
-    for (const evt of events) {
-      const row = normalizeEvent(evt, q, state === 'ALL' ? null : state);
-      if (!row) continue;
-      // Drop events that are explicitly dated in a prior year.
-      const thisYear = new Date().getFullYear();
-      if (row.startDate && row.startDate < `${thisYear}-01-01`) continue;
-      if (dateFrom && row.startDate && row.startDate < dateFrom) continue;
-      if (dateTo   && row.startDate && row.startDate > dateTo)   continue;
-      const dk = dedupeKey(row);
-      if (dedupe.has(dk)) {
-        const ex = dedupe.get(dk);
-        if (!ex.sourceQueries.includes(q)) ex.sourceQueries.push(q);
-
-        const pri  = { google: 0, eventbrite: 1, facebook: 2 };
-        const newP = pri[row.sourceType]  ?? 99;
-        const exP  = pri[ex.sourceType]   ?? 99;
-        const upgrade = newP < exP
-          || (newP === exP && (row.pageScore || 0) > (ex.pageScore || 0));
-
-        if (upgrade) {
-          // Better source type or higher-scoring page within the same source —
-          // swap in the better record, keep accumulated queries and coverage.
-          row.sourceQueries = ex.sourceQueries;
-          row.coverage      = ex.coverage;
-          dedupe.set(dk, row);
-          results[results.indexOf(ex)] = row;
-        } else {
-          // Same or lower priority — but still merge location fields the
-          // primary record is missing, provided the duplicate is not Facebook
-          // (vendor-created FB events frequently have wrong/shop addresses).
-          if (row.sourceType !== 'facebook') {
-            if (!ex.zip    && row.zip)    ex.zip    = row.zip;
-            if (!ex.county && row.county) { ex.county = row.county; ex.state = row.state; ex.coverage = getCoverage(row.state, row.county); }
-            if (!ex.city   && row.city)   ex.city   = row.city;
-            if (!ex.venue  && row.venue)  ex.venue  = row.venue;
-          }
-          // Attendance and contact: take whichever record has it, any source.
-          if (!ex.attendance && row.attendance) ex.attendance = row.attendance;
-          if (!ex.contact    && row.contact)    ex.contact    = row.contact;
-        }
-        continue;
-      }
-      row.sourceQueries = [q];
-      row.coverage = getCoverage(row.state, row.county);
-      dedupe.set(dk, row);
-      results.push(row);
-    }
-
-    if (i < queries.length - 1 && !stopRequested) await delay(400);
-  }
-
-  // Post-search county filter: if the user selected a subset of counties,
-  // keep only events whose enriched county matches. Events with no resolved
-  // county are kept so we don't silently discard unenriched results.
-  if (state !== 'ALL' && counties.length && counties.length < COUNTIES[state].length) {
-    const countySet = new Set(counties);
-    results = results.filter(r => !r.county || countySet.has(r.county));
-  }
-
-  currentResults = fuzzyMergeResults(results);
-  searchRunning  = false;
-  stopRequested  = false;
-  runBtn.innerHTML = '▶ &nbsp;RUN SEARCH';
-  runBtn.classList.remove('stop');
-  document.getElementById('loadingBar').style.display = 'none';
-  tagArea.innerHTML = '';
-
-  const pillsEl = document.getElementById('sourcePills');
-
-  if (!currentResults.length) {
-    setStatus('done', '0 RESULTS');
-    document.getElementById('resultCount').textContent = 'No events found for the selected filters';
-    pillsEl.style.display = 'none';
     document.getElementById('tablePlaceholder').style.display = 'flex';
     document.getElementById('tablePlaceholder').innerHTML =
-      '<div class="placeholder-icon">🔍</div><div class="placeholder-text">No events found — try different counties or a broader date range</div>';
-  } else {
-    setStatus('done', `${currentResults.length} RESULTS`);
-    // Source breakdown pills
-    const counts = { google: 0, eventbrite: 0, facebook: 0 };
-    currentResults.forEach(r => { counts[r.sourceType] = (counts[r.sourceType] || 0) + 1; });
-    const labels = { google: 'Google', eventbrite: 'Eventbrite', facebook: 'Facebook' };
-    const VALID_SOURCES = new Set(['google', 'eventbrite', 'facebook']);
-    const pills  = Object.entries(counts)
-      .filter(([src, n]) => n > 0 && VALID_SOURCES.has(src))
-      .map(([src, n]) => `<span class="source-pill ${src}">${labels[src]}: ${n}</span>`)
-      .join('');
-    // eslint-disable-next-line no-unsanitized/property -- src from VALID_SOURCES whitelist; labels from hardcoded object; n is a number
-    pillsEl.innerHTML      = pills;
-    pillsEl.style.display  = Object.keys(counts).filter(k => counts[k] > 0).length > 1 ? 'flex' : 'none';
-    renderResults(applyFilters(currentResults));
+      '<div class="placeholder-icon">⚠</div><div class="placeholder-text">Search failed — see error above</div>';
+  } finally {
+    searchRunning    = false;
+    runBtn.disabled  = false;
+    document.getElementById('loadingBar').style.display = 'none';
   }
 }
-
-async function callSerper(apiKey, query) {
-  const resp = await fetch('https://google.serper.dev/search', {
-    method:  'POST',
-    headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ q: query, gl: 'us', hl: 'en', num: 50 })
-  });
-  if (!resp.ok) {
-    const e = new Error(`HTTP ${resp.status}`);
-    e.status = resp.status;
-    throw e;
-  }
-  const data = await resp.json();
-  // Prefer structured events from the carousel; fall back to parsing organic listings
-  if (data.eventsResults?.length) return data.eventsResults;
-  if (data.events?.length)        return data.events;
-  return organicsToEvents(data.organic || []);
-}
-
-// Home improvement shows rarely appear in Google's events carousel — they're
-// in organic results instead. This converts qualifying organic hits to event shape.
-const ORGANIC_EVENT_RE  = /\b(home\s*show|home\s+improvement\s+(show|expo|fair)|home\s*(and|&)\s*garden\s+(show|expo)|remodeling\s+(show|expo)|renovation\s+(show|expo)|outdoor\s+living\s+(show|expo)|county\s+fair|state\s+fair|art\s+fair|craft\s+(show|fair|festival)|home\s+expo|trade\s+show|home\s+garden\s+expo|food\s+festival|wine\s+festival|beer\s+festival|seafood\s+festival|strawberry\s+festival|harvest\s+festival|fall\s+festival|pumpkin\s+festival|oktoberfest|cultural\s+festival|heritage\s+festival|community\s+festival|spring\s+festival|summer\s+festival|outdoor\s+festival|farm\s+show|agricultural\s+fair)\b/i;
-const ORGANIC_DATE_RE   = /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+\d{1,2}(?:\s*[-–]\s*\d{1,2})?,?\s*202\d/i;
-const ATTENDANCE_RE     = /\b(?:over\s+|up\s+to\s+|about\s+|approximately\s+|attracts?\s+|draws?\s+|expected?\s+)?([\d,]+(?:k|\+)?)\s*(?:\+\s*)?(?:attendees?|visitors?|guests?|shoppers?|participants?)\b|\battendance\s+(?:of\s+)?(?:over\s+)?([\d,]+(?:k|\+)?)\b/i;
-const EMAIL_RE          = /\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b/;
-const PHONE_RE          = /\(?\b\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}\b/;
-// Domains that are never useful event pages — encyclopedias, social profiles.
-const SKIP_DOMAIN_RE    = /\b(wikipedia\.org|instagram\.com|twitter\.com|x\.com|tiktok\.com|pinterest\.com|linkedin\.com)\b/;
-
-function organicsToEvents(organics) {
-  return organics
-    .filter(o => !SKIP_DOMAIN_RE.test(o.link || ''))
-    .filter(o => ORGANIC_EVENT_RE.test((o.title || '') + ' ' + (o.snippet || '')))
-    .map(o => {
-      const text       = (o.title || '') + ' ' + (o.snippet || '');
-      const attMatch   = text.match(ATTENDANCE_RE);
-      const attendance = attMatch ? (attMatch[1] || attMatch[2] || '').trim() : '';
-      const emailMatch = (o.snippet || '').match(EMAIL_RE);
-      const phoneMatch = (o.snippet || '').match(PHONE_RE);
-      const contact    = [emailMatch?.[0], phoneMatch?.[0]].filter(Boolean).join(' | ');
-      const title = (o.title || '')
-        .replace(/\s*[|–]\s*.{0,50}$/, '')                                      // "Event | Site Name"
-        .replace(/\s*:\s*.+$/, '')                                               // "Event: Sub-page / Attraction"
-        .replace(/\s*-\s*(tickets?|schedule|dates?|register|event\s+details?)\s*$/i, '')
-        .trim();
-      return {
-        title,
-        date:       (text.match(ORGANIC_DATE_RE) || [])[0] || null,
-        address:    o.snippet || '',
-        link:       o.link || '',
-        attendance,
-        contact
-      };
-    })
-    .filter(e => e.title);
-}
-
-// ═══════════════════════════════════════════
-//  QUERY BUILDING
-// ═══════════════════════════════════════════
-function buildAllQueries(state, selectedCounties, types, supplements = []) {
-  const seen    = new Set();
-  const queries = [];
-
-  const addUniq = q => { if (!seen.has(q)) { seen.add(q); queries.push(q); } };
-
-  if (state === 'ALL') {
-    STATE_ORDER.forEach(s => {
-      buildQueriesForState(COUNTIES[s], s, types).forEach(addUniq);
-      buildSupplementQueriesForState(s, types, supplements).forEach(addUniq);
-    });
-  } else {
-    buildQueriesForState(selectedCounties, state, types).forEach(addUniq);
-    buildSupplementQueriesForState(state, types, supplements).forEach(addUniq);
-  }
-  return queries;
-}
-
-function buildSupplementQueriesForState(state, types, supplements) {
-  if (!supplements.length) return [];
-  const stateName = STATE_NAMES[state];
-  const year      = new Date().getFullYear();
-  const queries   = [];
-
-  // One or two focused phrases per type — site: searches already narrow scope.
-  // One phrase per type keeps supplement query count manageable.
-  // The site: prefix already narrows scope; broad phrasing finds more.
-  const phraseMap = {
-    'Home Show':          ['"home show"'],
-    'Home & Garden':      ['"home and garden show"'],
-    'County Fair':        ['"county fair"'],
-    'State Fair':         ['"state fair"'],
-    'Art & Craft':        ['"craft show"'],
-    'Food Festival':      ['"food festival"'],
-    'Fall Festival':      ['"fall festival"'],
-    'Community Festival': ['"community festival"'],
-  };
-  const siteMap = {
-    eventbrite: 'site:eventbrite.com',
-    facebook:   'site:facebook.com/events',
-  };
-
-  supplements.forEach(src => {
-    const prefix = siteMap[src];
-    types.forEach(type => {
-      (phraseMap[type] || []).forEach(phrase => {
-        queries.push(`${prefix} ${phrase} ${stateName} ${year}`);
-      });
-    });
-  });
-  return queries;
-}
-
-function buildQueriesForState(counties, state, types) {
-  const stateName = STATE_NAMES[state];
-  const year = new Date().getFullYear();
-  const templates = {
-    'Home Show':     () => [
-      `home show ${stateName} ${year}`,
-      `home improvement expo ${stateName} ${year}`,
-      `home improvement show ${stateName} ${year}`,
-      `remodeling show ${stateName} ${year}`,
-      `home expo ${stateName} ${year}`,
-    ],
-    'Home & Garden': () => [
-      `home and garden show ${stateName} ${year}`,
-      `home garden expo ${stateName} ${year}`,
-      `outdoor living show ${stateName} ${year}`,
-    ],
-    // State-level query + one per selected county — every county fair has a
-    // dedicated page that won't rank in a generic state-wide search.
-    'County Fair':   () => [
-      `county fair ${stateName} ${year}`,
-      ...counties.map(c => `${countyForQuery(c)} fair ${stateName} ${year}`),
-    ],
-    'State Fair':    () => [`state fair ${stateName} ${year}`],
-    'Art & Craft':   () => [
-      `art fair ${stateName} ${year}`,
-      `craft show ${stateName} ${year}`,
-      `craft festival ${stateName} ${year}`,
-    ],
-    'Food Festival': () => [
-      `food festival ${stateName} ${year}`,
-      `wine festival ${stateName} ${year}`,
-      `seafood festival ${stateName} ${year}`,
-    ],
-    'Fall Festival': () => [
-      `fall festival ${stateName} ${year}`,
-      `harvest festival ${stateName} ${year}`,
-      `pumpkin festival ${stateName} ${year}`,
-    ],
-    'Community Festival': () => [
-      `community festival ${stateName} ${year}`,
-      `cultural festival ${stateName} ${year}`,
-      `outdoor festival ${stateName} ${year}`,
-    ],
-  };
-  const seen    = new Set();
-  const queries = [];
-  types.forEach(type => {
-    const tmpl = templates[type];
-    if (tmpl) tmpl().forEach(q => { if (!seen.has(q)) { seen.add(q); queries.push(q); } });
-  });
-  return queries;
-}
-
-function countyForQuery(county) {
-  if (/\b(City|County|District|Parish|Borough)\b/i.test(county)) return county;
-  return county + ' County';
-}
-
-// ═══════════════════════════════════════════
-//  NORMALIZE & ENRICH
-// ═══════════════════════════════════════════
-function normalizeEvent(evt, sourceQuery, searchState) {
-  const name = (evt.title || '').trim();
-  if (!name) return null;
-
-  const { startDate, endDate } = parseDates(evt.date);
-
-  // address may be a flat string ("Venue, City, ST ZIP") or an array
-  const addrFull = Array.isArray(evt.address)
-    ? evt.address.join(', ')
-    : (evt.address || '');
-  const venue = Array.isArray(evt.address) ? (evt.address[0] || '') : '';
-
-  const zipMatch = addrFull.match(/\b(\d{5})\b/);
-  const zip      = zipMatch ? zipMatch[1] : '';
-
-  let county = '';
-  let state  = searchState || '';
-
-  // ── Tier 1: ZIP → county lookup ──
-  if (zip && zipCounty && zipCounty[zip]) {
-    const raw = zipCounty[zip].county;
-    county = raw
-      .replace(/ County$/i, '')
-      .replace(/ city$/i, ' City')
-      .trim();
-    state = zipCounty[zip].state;
-  }
-
-  // ── Tier 2: Scan address/venue/title for known county names ──
-  if (!county && countyNameRe) {
-    const scanText = `${addrFull} ${venue} ${name}`;
-    const m = scanText.match(countyNameRe);
-    if (m) {
-      const matched = m[1];
-      // Find which state this county belongs to
-      for (const s of STATE_ORDER) {
-        if (COUNTIES[s].some(c => c.toLowerCase() === matched.toLowerCase())) {
-          county = matched;
-          state = s;
-          break;
-        }
-      }
-    }
-  }
-
-  // ── Tier 3: City+state → county lookup ──
-  if (!county && cityCounty) {
-    // Extract city from address: "Venue, City, ST ZIP" → City
-    const cityLine = addrFull
-      .replace(/,?\s*[A-Z]{2}\s*\d{5}(-\d{4})?\s*$/, '')
-      .replace(/,\s*$/, '')
-      .trim();
-    const city = (venue && cityLine.startsWith(venue))
-      ? cityLine.slice(venue.length).replace(/^,\s*/, '').trim()
-      : cityLine;
-
-    if (city) {
-      // Try with search state first, then all states
-      const tryStates = state ? [state] : STATE_ORDER;
-      for (const s of tryStates) {
-        const key = `${s}:${city}`;
-        if (cityCounty[key]) {
-          county = cityCounty[key].county
-            .replace(/ County$/i, '')
-            .replace(/ city$/i, ' City')
-            .trim();
-          state = s;
-          break;
-        }
-      }
-      // If not found with search state, try all states
-      if (!county) {
-        for (const s of STATE_ORDER) {
-          const key = `${s}:${city}`;
-          if (cityCounty[key]) {
-            county = cityCounty[key].county
-              .replace(/ County$/i, '')
-              .replace(/ city$/i, ' City')
-              .trim();
-            state = s;
-            break;
-          }
-        }
-      }
-    }
-  }
-
-  // ── City: strip trailing "ST ZIP" then remove venue prefix if present ──
-  const cityLine = addrFull
-    .replace(/,?\s*[A-Z]{2}\s*\d{5}(-\d{4})?\s*$/, '')
-    .replace(/,\s*$/, '')
-    .trim();
-  const city = (venue && cityLine.startsWith(venue))
-    ? cityLine.slice(venue.length).replace(/^,\s*/, '').trim()
-    : cityLine;
-
-  const sourceType = /site:eventbrite\.com/.test(sourceQuery) ? 'eventbrite'
-                   : /site:facebook\.com/.test(sourceQuery)   ? 'facebook'
-                   : 'google';
-
-  // Higher score = more likely to be the event's own authoritative page.
-  // Used as a tiebreaker when two records share the same sourceType.
-  const url = evt.link || '';
-  const currentYear = new Date().getFullYear();
-  const pageScore = (name.includes(String(currentYear))           ?  2 : 0)
-                  + (/\.(gov|us)\b/i.test(url)                    ? -1 : 0)
-                  + (/parks|recreation|tourism|countymd/i.test(url)? -1 : 0);
-
-  return {
-    name, startDate, endDate, venue, city, state, county, zip,
-    type:          inferEventType(sourceQuery, name),
-    url,
-    source:        sourceQuery,
-    sourceQueries: [],
-    sourceType,
-    pageScore,
-    attendance:    evt.attendance || '',
-    contact:       evt.contact    || ''
-  };
-}
-
-function parseDates(dateInput) {
-  if (!dateInput) return { startDate: '', endDate: '' };
-
-  // date may be a plain string ("Apr 18 – 19" / "Sat, Apr 18, 2026")
-  // or an object ({ startDate: "Apr 18, 2026", when: "Apr 18 – 19" })
-  const rangeStr = typeof dateInput === 'string' ? dateInput : (dateInput.when || dateInput.startDate || '');
-  const rawStart = typeof dateInput === 'string' ? dateInput : (dateInput.startDate || dateInput.when || '');
-  if (!rawStart) return { startDate: '', endDate: '' };
-
-  // Strip the "– end" part before parsing the start date
-  const cleanStart = rawStart.split(/\s*[–-]\s*/)[0].trim();
-  const hasYear = /\b\d{4}\b/.test(cleanStart);
-  const yearFallback = (rangeStr.match(/\b(202\d)\b/) || [])[1] || '';
-  const startStr = hasYear ? cleanStart : (yearFallback ? `${cleanStart}, ${yearFallback}` : cleanStart);
-  const start = new Date(startStr);
-  if (isNaN(start)) return { startDate: '', endDate: '' };
-  const startDate = start.toISOString().slice(0, 10);
-
-  // Parse end date from range notation: "Apr 18 – 19" or "Apr 18 – May 3, 2026"
-  const m = rangeStr.match(/[–-]\s*(?:(\w+)\s+)?(\d+)(?:,\s*(\d{4}))?/);
-  if (m) {
-    const month = m[1] || start.toLocaleString('en-US', { month: 'short' });
-    const day   = m[2];
-    const year  = m[3] || start.getFullYear();
-    const end   = new Date(`${month} ${day}, ${year}`);
-    if (!isNaN(end) && end >= start) return { startDate, endDate: end.toISOString().slice(0, 10) };
-  }
-  return { startDate, endDate: startDate };
-}
-
-function inferEventType(query, title) {
-  const s = (query + ' ' + title).toLowerCase();
-  if (s.includes('state fair'))   return 'State Fair';
-  if (s.includes('county fair') || /\b\w+ county fair\b/.test(s)) return 'County Fair';
-  if (s.includes('harvest festival') || s.includes('fall festival') ||
-      s.includes('pumpkin festival') || s.includes('oktoberfest'))  return 'Fall Festival';
-  if (s.includes('food festival') || s.includes('wine festival') ||
-      s.includes('beer festival') || s.includes('seafood') ||
-      s.includes('strawberry festival') || s.includes('taste of'))  return 'Food Festival';
-  if (s.includes('cultural festival') || s.includes('heritage festival') ||
-      s.includes('community festival') || s.includes('spring festival') ||
-      s.includes('summer festival') || s.includes('outdoor festival'))return 'Community Festival';
-  if (s.includes('garden') || s.includes('outdoor living'))         return 'Home & Garden';
-  if (s.includes('art') || s.includes('craft'))                     return 'Art & Craft';
-  return 'Home Show';
-}
-
-function dedupeKey(row) {
-  // Smart spaced-hyphen handling: keep whichever side contains event keywords.
-  // "Maryland State Fair - Deggeller Attractions" → keep left (has "fair")
-  // "Come on In - Worcester County Fair 2026"    → keep right (has "fair")
-  // Both sides or neither have keywords → leave the name unchanged.
-  const EVENT_CORE_RE = /\b(fair|show|expo|festival|exhibit|convention)\b/;
-  let rawName = (row.name || '').toLowerCase();
-  const parts = rawName.split(/\s+-\s+/);
-  if (parts.length >= 2) {
-    const before = parts[0];
-    const after  = parts.slice(1).join(' - ');
-    const bHas   = EVENT_CORE_RE.test(before);
-    const aHas   = EVENT_CORE_RE.test(after);
-    if      (bHas && !aHas) rawName = before;
-    else if (aHas && !bHas) rawName = after;
-  }
-
-  const name = rawName
-    .replace(/\s*:\s*.+$/, '')      // "Event: Sub-page"
-    .replace(/\s*[|–]\s*.+$/, '')   // "Event | Site" / "Event – something"
-    .replace(/\b20\d\d\b/g, '')     // "Fair 2026" → "Fair" (year in name ≠ event identity)
-    .replace(/[^\w\s]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const year = (row.startDate || '').slice(0, 4);
-  const locality = row.zip || row.state || '';
-  return `${name}|${year}|${locality}`;
-}
-
-// ═══════════════════════════════════════════
-//  FUZZY DEDUP (post-search merge pass)
-// ═══════════════════════════════════════════
-
-function normalizeForDedup(name) {
-  let s = (name || '').toLowerCase();
-  s = s.replace(/\b(maryland|virginia|pennsylvania|washington\s*dc|new\s*jersey|delaware|md|va|pa|dc|nj|de)\b/g, '');
-  s = s.replace(/\b(the|annual|official|visit|welcome\s*to|home\s*of|guide|info|details?|tickets?|schedule|dates?)\b/g, '');
-  s = s.replace(/\b20\d\d\b/g, '');
-  s = s.replace(/\b(fairgrounds|convention\s*center|expo\s*center|event\s*center|civic\s*center|grounds)\b/g, '');
-  s = s.replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
-  return s;
-}
-
-function jaccardSimilarity(a, b) {
-  const setA = new Set(a.split(/\s+/).filter(Boolean));
-  const setB = new Set(b.split(/\s+/).filter(Boolean));
-  if (!setA.size || !setB.size) return 0;
-  let intersection = 0;
-  for (const w of setA) { if (setB.has(w)) intersection++; }
-  const union = new Set([...setA, ...setB]).size;
-  return intersection / union;
-}
-
-function fuzzyMergeResults(results) {
-  const buckets = new Map();
-  for (const r of results) {
-    const loc = r.zip || `${r.city}|${r.state}`;
-    const key = `${r.startDate || ''}|${loc}`;
-    if (!buckets.has(key)) buckets.set(key, []);
-    buckets.get(key).push(r);
-  }
-
-  const merged = new Set();
-  const altUrlAccum = new Map();
-
-  for (const [, group] of buckets) {
-    if (group.length < 2) continue;
-    for (let i = 0; i < group.length; i++) {
-      if (merged.has(results.indexOf(group[i]))) continue;
-      const normA = normalizeForDedup(group[i].name);
-      for (let j = i + 1; j < group.length; j++) {
-        if (merged.has(results.indexOf(group[j]))) continue;
-        const normB = normalizeForDedup(group[j].name);
-        const sim = jaccardSimilarity(normA, normB);
-        if (sim >= 0.6) {
-          const pri = { google: 0, eventbrite: 1, facebook: 2 };
-          const pA = pri[group[i].sourceType] ?? 99;
-          const pB = pri[group[j].sourceType] ?? 99;
-          let winner, loser;
-          if (pA < pB || (pA === pB && (group[i].pageScore || 0) >= (group[j].pageScore || 0))) {
-            winner = group[i]; loser = group[j];
-          } else {
-            winner = group[j]; loser = group[i];
-          }
-          const wIdx = results.indexOf(winner);
-          if (!altUrlAccum.has(wIdx)) altUrlAccum.set(wIdx, []);
-          altUrlAccum.get(wIdx).push({ url: loser.url, sourceType: loser.sourceType });
-          loser.sourceQueries.forEach(q => {
-            if (!winner.sourceQueries.includes(q)) winner.sourceQueries.push(q);
-          });
-          merged.add(results.indexOf(loser));
-        }
-      }
-    }
-  }
-
-  for (const [idx, urls] of altUrlAccum) {
-    results[idx].altUrls = urls;
-  }
-  return results.filter((_, i) => !merged.has(i));
-}
-
-function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ═══════════════════════════════════════════
 //  ERROR BANNER
@@ -1948,13 +1366,31 @@ function getCoverage(state, county) {
   return servedSet.has(`${state}:${county}`) ? 'served' : 'not-served';
 }
 
+function getCountyFilter() {
+  const all = document.querySelectorAll('#countyList input[type="checkbox"]');
+  if (!all.length) return null;
+  const selected = getSelectedCounties();
+  if (selected.length === all.length) return null; // all checked = no filter active
+  return new Set(selected);
+}
+
 function applyFilters(results) {
-  if (coverageFilter === 'all') return sortResults(results);
-  return sortResults(results.filter(r => {
-    if (coverageFilter === 'served')     return r.coverage === 'served';
-    if (coverageFilter === 'not-served') return r.coverage !== 'served';
-    return true;
-  }));
+  let filtered = results;
+
+  // County filter (post-search client-side — active when any county is unchecked)
+  const countyFilter = getCountyFilter();
+  if (countyFilter) {
+    filtered = filtered.filter(r => !r.county || countyFilter.has(r.county));
+  }
+
+  if (coverageFilter !== 'all') {
+    filtered = filtered.filter(r => {
+      if (coverageFilter === 'served')     return r.coverage === 'served';
+      if (coverageFilter === 'not-served') return r.coverage !== 'served';
+      return true;
+    });
+  }
+  return sortResults(filtered);
 }
 
 function sortResults(results) {
@@ -2011,7 +1447,6 @@ function renderResults(results) {
       <td class="mono">${escHtml(e.zip)}</td>
       <td><span class="type-badge ${typeClass}">${escHtml(e.type.toUpperCase())}</span></td>
       <td class="mono">${escHtml(e.attendance)}</td>
-      <td class="contact-cell">${escHtml(e.contact)}</td>
       <td><span class="coverage-dot ${e.coverage}">${covLabel}</span></td>
       <td><a class="event-link" href="${escHtml(e.url)}" target="_blank" title="View event">↗</a></td>
     </tr>`;
@@ -2019,11 +1454,11 @@ function renderResults(results) {
     if (!hasAlts) return row;
 
     const altLinks = e.altUrls.map(u => {
-      const srcLabel = u.sourceType === 'eventbrite' ? 'Eventbrite' : u.sourceType === 'facebook' ? 'Facebook' : 'Google';
+      const srcLabel = u.sourceType === 'eventbrite' ? 'Eventbrite' : u.sourceType === 'serper_organic' ? 'Google Organic' : 'Google Events';
       return `<a href="${escHtml(u.url)}" target="_blank">${escHtml(u.url)}<span class="alt-url-source">[${srcLabel}]</span></a>`;
     }).join('');
 
-    return row + `<tr class="alt-urls-row" data-parent="${idx}" style="display:none"><td colspan="11">
+    return row + `<tr class="alt-urls-row" data-parent="${idx}" style="display:none"><td colspan="10">
       <div class="alt-urls-label">ALTERNATE URLs (${e.altUrls.length})</div>
       <div class="alt-url-list">${altLinks}</div>
     </td></tr>`;
@@ -2046,7 +1481,7 @@ function escHtml(s) {
 // ═══════════════════════════════════════════
 function exportCSV() {
   const visible = applyFilters(currentResults);
-  const headers = ['Event Name','Start Date','End Date','Venue','City','State','County','ZIP','Type','Attendance','Contact','Coverage','Source','Source URL','Alternate URLs'];
+  const headers = ['Event Name','Start Date','End Date','Venue','City','State','County','ZIP','Type','Attendance','Coverage','Source','Source URL','Alternate URLs'];
   const rows    = visible.map(e => [
     `"${(e.name       || '').replace(/"/g, '""')}"`,
     e.startDate,
@@ -2056,8 +1491,7 @@ function exportCSV() {
     `"${(e.county     || '').replace(/"/g, '""')}"`,
     e.zip, e.type,
     `"${(e.attendance || '').replace(/"/g, '""')}"`,
-    `"${(e.contact    || '').replace(/"/g, '""')}"`,
-    e.coverage, e.sourceType || 'google', e.url,
+    e.coverage, e.sourceType || '', e.url,
     `"${(e.altUrls || []).map(u => u.url).join(' | ').replace(/"/g, '""')}"`
   ]);
   const csv  = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
