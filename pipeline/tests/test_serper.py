@@ -6,6 +6,7 @@ import responses as responses_lib
 from pipeline.fetchers.serper import (
     SERPER_URL,
     _call_serper,
+    _extract_state_from_query,
     build_all_queries,
     build_queries_for_state,
     fetch_all,
@@ -37,6 +38,36 @@ class TestBuildQueriesForState:
         queries = build_queries_for_state(COUNTIES["MD"], "MD", ["State Fair"])
         state_fair_queries = [q for q in queries if "state fair" in q.lower()]
         assert len(state_fair_queries) == 1
+
+
+class TestExtractStateFromQuery:
+    def test_extracts_maryland(self):
+        assert _extract_state_from_query("home show Maryland 2026") == "MD"
+
+    def test_extracts_virginia(self):
+        assert _extract_state_from_query("state fair Virginia 2026") == "VA"
+
+    def test_extracts_pennsylvania(self):
+        assert _extract_state_from_query("craft festival Pennsylvania 2026") == "PA"
+
+    def test_extracts_new_jersey(self):
+        assert _extract_state_from_query("county fair New Jersey 2026") == "NJ"
+
+    def test_extracts_delaware(self):
+        assert _extract_state_from_query("fall festival Delaware 2026") == "DE"
+
+    def test_extracts_washington_dc(self):
+        assert _extract_state_from_query("community festival Washington DC 2026") == "DC"
+
+    def test_returns_none_for_unknown_state(self):
+        assert _extract_state_from_query("home show California 2026") is None
+
+    def test_returns_none_for_empty_query(self):
+        assert _extract_state_from_query("") is None
+
+    def test_first_match_wins_for_multi_state_query(self):
+        # Montgomery County exists in both MD and PA; the query says Maryland
+        assert _extract_state_from_query("Montgomery County fair Maryland 2026") == "MD"
 
 
 class TestBuildAllQueries:
@@ -130,3 +161,26 @@ class TestFetchAll:
         responses_lib.add(responses_lib.POST, SERPER_URL, json=payload, status=200)
         result = fetch_all("test-key", ["query"])
         assert result == []
+
+    def test_extracts_state_from_query_string(self, serper_events_payload):
+        responses_lib.add(
+            responses_lib.POST,
+            SERPER_URL,
+            json=serper_events_payload,
+            status=200,
+        )
+        result = fetch_all("test-key", ["home show Maryland"])
+        for event in result:
+            assert event.state == "MD"
+
+    def test_explicit_search_state_overrides_query(self, serper_events_payload):
+        """When search_state is explicitly passed, it takes priority over query extraction."""
+        responses_lib.add(
+            responses_lib.POST,
+            SERPER_URL,
+            json=serper_events_payload,
+            status=200,
+        )
+        result = fetch_all("test-key", ["home show Maryland"], search_state="VA")
+        for event in result:
+            assert event.state == "VA"

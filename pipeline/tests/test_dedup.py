@@ -53,6 +53,18 @@ class TestDedupKey:
         key = dedup_key(e)
         assert key.endswith("|MD")
 
+    def test_empty_locality_preserves_name_details(self):
+        """When both ZIP and state are empty, preserve hyphen-separated details
+        to prevent false collisions between distinct events."""
+        e_balt = _make_event(name="Home Show - Baltimore", zip="", state="")
+        e_fred = _make_event(name="Home Show - Frederick", zip="", state="")
+        key_balt = dedup_key(e_balt)
+        key_fred = dedup_key(e_fred)
+        # Names should still be distinguishable even without locality
+        assert key_balt != key_fred
+        assert "baltimore" in key_balt
+        assert "frederick" in key_fred
+
 
 class TestJaccardSimilarity:
     def test_identical_strings(self):
@@ -207,3 +219,95 @@ class TestFuzzyMergeResults:
         results = fuzzy_merge_results([e1, e2])
         # Should be merged because bucket is year|county, not startDate|zip
         assert len(results) == 1
+
+    def test_backfills_missing_location_from_loser(self):
+        """Loser's ZIP, county, city, venue should backfill into winner during fuzzy merge."""
+        e1 = _make_event(
+            name="Frederick Home Expo",
+            county="Frederick",
+            state="MD",
+            zip="",
+            city="",
+            venue="",
+            attendance="",
+            contact="",
+            start_date="2026-03-14",
+            primary_url="https://first.com",
+            source_type="serper_events",
+        )
+        e2 = _make_event(
+            name="Frederick Home Expo 2026",
+            county="Frederick",
+            state="MD",
+            zip="21701",
+            city="Frederick",
+            venue="Frederick Fairgrounds",
+            attendance="5000",
+            contact="info@test.com",
+            start_date="2026-03-15",
+            primary_url="https://second.com",
+            source_type="serper_events",
+        )
+        results = fuzzy_merge_results([e1, e2])
+        assert len(results) == 1
+        w = results[0]
+        assert w.zip == "21701"
+        assert w.city == "Frederick"
+        assert w.venue == "Frederick Fairgrounds"
+        assert w.attendance == "5000"
+        assert w.contact == "info@test.com"
+
+    def test_does_not_backfill_location_from_organic_loser(self):
+        """Location fields from serper_organic losers should NOT be backfilled."""
+        e1 = _make_event(
+            name="Frederick Home Expo",
+            county="Frederick",
+            state="MD",
+            zip="",
+            city="",
+            venue="",
+            attendance="",
+            contact="",
+            start_date="2026-03-14",
+            source_type="serper_events",
+        )
+        e2 = _make_event(
+            name="Frederick Home Expo 2026",
+            county="Frederick",
+            state="MD",
+            zip="21701",
+            city="Frederick",
+            venue="Frederick Fairgrounds",
+            start_date="2026-03-15",
+            source_type="serper_organic",
+        )
+        results = fuzzy_merge_results([e1, e2])
+        assert len(results) == 1
+        w = results[0]
+        # Location fields should NOT be backfilled from organic loser
+        assert w.zip == ""
+        assert w.city == ""
+
+    def test_backfills_attendance_contact_even_from_organic_loser(self):
+        """Attendance/contact should backfill from organic losers (not location)."""
+        e1 = _make_event(
+            name="Carroll Fair",
+            county="Carroll",
+            start_date="2026-08-01",
+            attendance="",
+            contact="",
+            source_type="serper_events",
+        )
+        e2 = _make_event(
+            name="Carroll County Fair",
+            county="Carroll",
+            start_date="2026-08-01",
+            attendance="3000",
+            contact="info@carroll.com",
+            source_type="serper_organic",
+        )
+        results = fuzzy_merge_results([e1, e2])
+        assert len(results) == 1
+        w = results[0]
+        assert w.attendance == "3000"
+        assert w.contact == "info@carroll.com"

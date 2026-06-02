@@ -1194,13 +1194,15 @@ function getSelectedTypes() {
 //  MEILISEARCH  (proxied via nginx — no key in client)
 // ═══════════════════════════════════════════
 
-async function searchMeilisearch(state, eventTypes) {
+async function searchMeilisearch(state, eventTypes, dateFrom, dateTo) {
   const filterParts = [];
   if (state && state !== 'ALL') filterParts.push(`state = '${state}'`);
   if (eventTypes.length && eventTypes.length < Object.keys(EVENT_TYPES).length) {
     const typeList = eventTypes.map(t => `'${t}'`).join(', ');
     filterParts.push(`eventType IN [${typeList}]`);
   }
+  if (dateFrom) filterParts.push(`startDate >= '${dateFrom}'`);
+  if (dateTo)   filterParts.push(`startDate <= '${dateTo}'`);
   const body = {
     q: '',
     limit: 1000,
@@ -1258,7 +1260,9 @@ async function runSearch() {
   document.getElementById('queryTags').innerHTML = '';
 
   try {
-    const data   = await searchMeilisearch(state, types);
+    const dateFrom = document.getElementById('dateFrom').value;
+    const dateTo   = document.getElementById('dateTo').value;
+    const data   = await searchMeilisearch(state, types, dateFrom, dateTo);
     const hits   = data.hits || [];
     const facets = data.facetDistribution || {};
 
@@ -1275,11 +1279,18 @@ async function runSearch() {
       coverage: getCoverage(hit.state, hit.county),
     }));
 
-    // Client-side date range filter
-    const dateFrom = document.getElementById('dateFrom').value;
-    const dateTo   = document.getElementById('dateTo').value;
-    if (dateFrom) results = results.filter(r => !r.startDate || r.startDate >= dateFrom);
-    if (dateTo)   results = results.filter(r => !r.startDate || r.startDate <= dateTo);
+    // Client-side date overlap filter — handles events that span the
+    // selected range even when startDate is outside the range, and
+    // excludes events with no date information.
+    if (dateFrom || dateTo) {
+      results = results.filter(r => {
+        if (!r.startDate) return false;
+        const evtEnd = r.endDate || r.startDate;
+        if (dateFrom && evtEnd < dateFrom) return false;
+        if (dateTo && r.startDate > dateTo) return false;
+        return true;
+      });
+    }
 
     currentResults = results;
 

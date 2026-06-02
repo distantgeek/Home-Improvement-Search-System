@@ -48,6 +48,19 @@ def dedup_key(event: EventItem) -> str:
     """Exact-match dedup key: normalized_name|year|locality."""
     raw = event.name.lower()
 
+    year = event.start_date[:4] if event.start_date else ""
+    locality = event.zip or event.state or ""
+
+    # When locality is empty (no ZIP or state), keep more of the name to
+    # prevent false collisions between different events that share a
+    # generic stem (e.g. "Home Show - Baltimore" vs "Home Show - Frederick"
+    # would both reduce to "home show" without a locality differentiator).
+    if not locality:
+        raw = _YEAR_RE.sub("", raw)
+        raw = _NON_WORD_RE.sub("", raw)
+        raw = _MULTI_SPACE_RE.sub(" ", raw).strip()
+        return f"{raw}|{year}|"
+
     # Smart hyphen: keep the side that contains event keywords
     parts = raw.split(" - ")
     if len(parts) >= 2:
@@ -66,8 +79,6 @@ def dedup_key(event: EventItem) -> str:
     raw = _NON_WORD_RE.sub("", raw)
     raw = _MULTI_SPACE_RE.sub(" ", raw).strip()
 
-    year = event.start_date[:4] if event.start_date else ""
-    locality = event.zip or event.state or ""
     return f"{raw}|{year}|{locality}"
 
 
@@ -190,16 +201,36 @@ def fuzzy_merge_results(events: list[EventItem]) -> list[EventItem]:
                     winner, loser = j, i
 
                 # Accumulate alternate URL from loser into winner
-                if events[loser].primary_url:
-                    events[winner].sources.append(
+                loser_ev = events[loser]
+                winner_ev = events[winner]
+                if loser_ev.primary_url:
+                    winner_ev.sources.append(
                         {
-                            "url": events[loser].primary_url,
-                            "sourceType": events[loser].source_type,
+                            "url": loser_ev.primary_url,
+                            "sourceType": loser_ev.source_type,
                         }
                     )
-                for q in events[loser].source_queries:
-                    if q not in events[winner].source_queries:
-                        events[winner].source_queries.append(q)
+                for q in loser_ev.source_queries:
+                    if q not in winner_ev.source_queries:
+                        winner_ev.source_queries.append(q)
+
+                # Backfill missing location data from loser (same pattern as exact_dedup)
+                if loser_ev.source_type != "serper_organic":
+                    if not winner_ev.zip and loser_ev.zip:
+                        winner_ev.zip = loser_ev.zip
+                    if not winner_ev.county and loser_ev.county:
+                        winner_ev.county = loser_ev.county
+                        winner_ev.county_full = loser_ev.county_full
+                        winner_ev.state = loser_ev.state
+                    if not winner_ev.city and loser_ev.city:
+                        winner_ev.city = loser_ev.city
+                    if not winner_ev.venue and loser_ev.venue:
+                        winner_ev.venue = loser_ev.venue
+                if not winner_ev.attendance and loser_ev.attendance:
+                    winner_ev.attendance = loser_ev.attendance
+                if not winner_ev.contact and loser_ev.contact:
+                    winner_ev.contact = loser_ev.contact
+
                 merged.add(loser)
 
     return [e for i, e in enumerate(events) if i not in merged]
