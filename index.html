@@ -1194,15 +1194,13 @@ function getSelectedTypes() {
 //  MEILISEARCH  (proxied via nginx — no key in client)
 // ═══════════════════════════════════════════
 
-async function searchMeilisearch(state, eventTypes, dateFrom, dateTo) {
+async function searchMeilisearch(state, eventTypes) {
   const filterParts = [];
   if (state && state !== 'ALL') filterParts.push(`state = '${state}'`);
   if (eventTypes.length && eventTypes.length < Object.keys(EVENT_TYPES).length) {
     const typeList = eventTypes.map(t => `'${t}'`).join(', ');
     filterParts.push(`eventType IN [${typeList}]`);
   }
-  if (dateFrom) filterParts.push(`startDate >= '${dateFrom}'`);
-  if (dateTo)   filterParts.push(`startDate <= '${dateTo}'`);
   const body = {
     q: '',
     limit: 1000,
@@ -1262,7 +1260,7 @@ async function runSearch() {
   try {
     const dateFrom = document.getElementById('dateFrom').value;
     const dateTo   = document.getElementById('dateTo').value;
-    const data   = await searchMeilisearch(state, types, dateFrom, dateTo);
+    const data   = await searchMeilisearch(state, types);
     const hits   = data.hits || [];
     const facets = data.facetDistribution || {};
 
