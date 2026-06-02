@@ -192,17 +192,18 @@ class TestOrganicsToEvents:
         results = organics_to_events(organics)
         assert results == []
 
-    def test_rejects_too_short_title(self):
-        """Very short titles (< 15 chars) should be rejected."""
+    def test_accepts_short_event_title(self):
+        """Short event titles should not be rejected by length alone —
+        they are case-by-case and often legitimate (e.g. 'Oktoberfest')."""
         organics = [
             {
-                "title": "Fair Info",
-                "snippet": "County fair information and schedule",
-                "link": "https://example.com/info",
+                "title": "Oktoberfest 2026",
+                "snippet": "Annual oktoberfest celebration with food and music",
+                "link": "https://example.com/oktoberfest",
             }
         ]
         results = organics_to_events(organics)
-        assert results == []
+        assert len(results) == 1
 
     def test_accepts_legitimate_event_title(self):
         """A normal event title should still pass all guards."""

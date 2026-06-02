@@ -112,12 +112,9 @@ def organics_to_events(organics: list[dict]) -> list[dict]:
         if _AGGREGATOR_TITLE_RE.search(title):
             # e.g. "Discover fairs, festivals, and events in MARYLAND"
             continue
-        if len(title) < _MIN_EVENT_TITLE_LEN:
-            continue
-        word_count = len(title.split())
-        if word_count < _MIN_EVENT_TITLE_WORDS:
-            continue
-        # Title itself must contain an event keyword — not just the snippet
+        # Title itself must contain an event keyword — not just the snippet.
+        # This is the primary guard against nav sub-pages whose snippets happen
+        # to mention a fair/festival (e.g. a page titled "SPONSORS").
         if not ORGANIC_EVENT_RE.search(title):
             continue
 
@@ -242,8 +239,6 @@ _AGGREGATOR_TITLE_RE = re.compile(
     r"\b(discover|find|browse|upcoming).*(fairs?|festivals?|events?)",
     re.IGNORECASE,
 )
-_MIN_EVENT_TITLE_LEN = 15   # characters after cleaning
-_MIN_EVENT_TITLE_WORDS = 3  # words after cleaning
 
 
 def normalize_event(
