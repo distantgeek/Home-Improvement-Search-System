@@ -165,6 +165,14 @@ def fuzzy_merge_results(events: list[EventItem]) -> list[EventItem]:
     buckets: dict[str, list[int]] = {}
     for i, event in enumerate(events):
         year = event.start_date[:4] if event.start_date else ""
+        if not year:
+            # Borrow year from event name when parse_dates returned empty —
+            # e.g. "2026 Talbot County Fair - FairEntry.com" has no parsed date
+            # but the name clearly contains the year and should bucket with
+            # other events from the same year.
+            ym = _YEAR_RE.search(event.name)
+            if ym:
+                year = ym.group(0)
         county = event.county or event.state or ""
         if not year and not county:
             # No temporal or geographic signal — skip from fuzzy comparison

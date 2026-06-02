@@ -311,3 +311,25 @@ class TestFuzzyMergeResults:
         w = results[0]
         assert w.attendance == "3000"
         assert w.contact == "info@carroll.com"
+
+    def test_cross_year_merged_when_name_has_year(self):
+        """Same event, one with parsed date and one without, should still merge
+        when the name contains the year (e.g. '2026 Talbot County Fair')."""
+        e1 = _make_event(
+            name="Talbot County Fair",
+            county="Talbot",
+            state="MD",
+            start_date="2026-07-09",
+            primary_url="https://facebook.com/talbotfair",
+            source_type="serper_organic",
+        )
+        e2 = _make_event(
+            name="2026 Talbot County Fair - FairEntry.com",
+            county="Talbot",
+            state="MD",
+            start_date="",   # no parsed date — but name says 2026
+            primary_url="https://fairentry.com/event/123",
+            source_type="serper_organic",
+        )
+        results = fuzzy_merge_results([e1, e2])
+        assert len(results) == 1, "Should merge — both are Talbot County Fair, name has year"

@@ -143,6 +143,80 @@ class TestOrganicsToEvents:
         results = organics_to_events(organics)
         assert results[0]["attendance"] == "50,000"
 
+    def test_rejects_short_non_event_titles(self):
+        """Pages titled 'SPONSORS' or similar nav labels should be rejected."""
+        for bad_title in ("SPONSORS", "CONTACT US", "ANIMAL EXHIBITS", "INDOOR EXHIBITS", "Home"):
+            organics = [
+                {
+                    "title": bad_title,
+                    "snippet": "Visit the Talbot County Fair for fun and food",
+                    "link": "https://example.com/sponsors",
+                }
+            ]
+            results = organics_to_events(organics)
+            assert results == [], f"Should reject title: {bad_title}"
+
+    def test_rejects_subsite_suffix_titles(self):
+        """Pages like 'X - FairEntry.com' are registration sub-pages, not events."""
+        organics = [
+            {
+                "title": "Talbot County Fair - FairEntry.com",
+                "snippet": "Register for the Talbot County Fair online",
+                "link": "https://fairentry.com/event/123",
+            }
+        ]
+        results = organics_to_events(organics)
+        assert results == []
+
+    def test_rejects_aggregator_titles(self):
+        """Aggregator listing pages like 'Discover fairs...' should be rejected."""
+        organics = [
+            {
+                "title": "Discover fairs, festivals, and events in MARYLAND",
+                "snippet": "Find upcoming county fairs and festivals across Maryland",
+                "link": "https://example.com/events/md",
+            }
+        ]
+        results = organics_to_events(organics)
+        assert results == []
+
+    def test_rejects_titles_without_event_keywords(self):
+        """Even if title+snippet matches, the title itself must contain event keywords."""
+        organics = [
+            {
+                "title": "About Our Agricultural Education Programs",
+                "snippet": "Includes the annual county fair, craft show, and food festival events",
+                "link": "https://example.com/about",
+            }
+        ]
+        results = organics_to_events(organics)
+        assert results == []
+
+    def test_rejects_too_short_title(self):
+        """Very short titles (< 15 chars) should be rejected."""
+        organics = [
+            {
+                "title": "Fair Info",
+                "snippet": "County fair information and schedule",
+                "link": "https://example.com/info",
+            }
+        ]
+        results = organics_to_events(organics)
+        assert results == []
+
+    def test_accepts_legitimate_event_title(self):
+        """A normal event title should still pass all guards."""
+        organics = [
+            {
+                "title": "Talbot County Fair",
+                "snippet": "Annual Talbot County Fair with rides, food, and exhibits",
+                "link": "https://facebook.com/talbotcountyfair",
+            }
+        ]
+        results = organics_to_events(organics)
+        assert len(results) == 1
+        assert results[0]["title"] == "Talbot County Fair"
+
 
 class TestNormalizeEvent:
     def test_returns_none_for_empty_title(self):

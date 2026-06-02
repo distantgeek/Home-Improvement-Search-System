@@ -102,6 +102,25 @@ def organics_to_events(organics: list[dict]) -> list[dict]:
         if not title:
             continue
 
+        # Quality guards — reject pages that are not event landing pages
+        if _NON_EVENT_TITLE_RE.match(title):
+            # e.g. "SPONSORS", "CONTACT US", "ANIMAL EXHIBITS" — nav sub-pages
+            continue
+        if _SUBSITE_SUFFIX_RE.search(title):
+            # e.g. "Talbot County Fair - FairEntry.com" — registration sub-page
+            continue
+        if _AGGREGATOR_TITLE_RE.search(title):
+            # e.g. "Discover fairs, festivals, and events in MARYLAND"
+            continue
+        if len(title) < _MIN_EVENT_TITLE_LEN:
+            continue
+        word_count = len(title.split())
+        if word_count < _MIN_EVENT_TITLE_WORDS:
+            continue
+        # Title itself must contain an event keyword — not just the snippet
+        if not ORGANIC_EVENT_RE.search(title):
+            continue
+
         date_m = ORGANIC_DATE_RE.search(combined)
         results.append(
             {
@@ -206,6 +225,25 @@ def infer_event_type(query: str, title: str) -> str:
 _ZIP_RE = re.compile(r"\b(\d{5})\b")
 _GOV_URL_RE = re.compile(r"\.(gov|us)\b", re.IGNORECASE)
 _PARKS_URL_RE = re.compile(r"parks|recreation|tourism|countymd", re.IGNORECASE)
+# Organic scraper quality guards — reject pages that are clearly not event landing pages
+_NON_EVENT_TITLE_RE = re.compile(
+    r"^\s*(sponsors?|contact\s*us|about\s*us|directions?|location|vendors?"
+    r"|exhibitors?|animal\s*exhibits?|indoor\s*exhibits?|outdoor\s*exhibits?"
+    r"|home|schedule|events?|calendar|faq|press|media|gallery|photos?)"
+    r"\s*$",
+    re.IGNORECASE,
+)
+# Pages titled "X - FairEntry.com" or "X - Eventbrite" — sub-pages not the main event
+_SUBSITE_SUFFIX_RE = re.compile(
+    r"\s*[-|]\s*(fai?rentry|eventbrite|allevents|facebook|ticketmaster|eventbrite)\b",
+    re.IGNORECASE,
+)
+_AGGREGATOR_TITLE_RE = re.compile(
+    r"\b(discover|find|browse|upcoming).*(fairs?|festivals?|events?)",
+    re.IGNORECASE,
+)
+_MIN_EVENT_TITLE_LEN = 15   # characters after cleaning
+_MIN_EVENT_TITLE_WORDS = 3  # words after cleaning
 
 
 def normalize_event(
