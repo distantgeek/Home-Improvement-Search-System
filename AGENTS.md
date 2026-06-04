@@ -20,11 +20,13 @@ hand-pruning results by county. That workflow is wrong for the use case and not 
 
 **The solution (current architecture):** A background Python pipeline pre-fetches events
 from Serper.dev (Google Events), normalizes and deduplicates them, stores them in SQLite,
-and indexes them in Meilisearch. Events with Eventbrite URLs found via Serper are
-additionally enriched with structured address data from the Eventbrite Event Retrieval
-API (when the API key has the required scope — see Section 8). A static HTML frontend
-queries Meilisearch directly, letting the coordinator filter by served counties and export
-results to CSV.
+and indexes them in Meilisearch. A manual structured-file ingest pipeline (`--ingest-file`)
+processes FestivalNet My List HTML exports as the highest-priority data source. Events
+with Eventbrite URLs found via Serper are additionally enriched with structured address
+data from the Eventbrite Event Retrieval API (when the API key has the required scope —
+see Section 8). A static HTML frontend queries Meilisearch directly, letting the
+coordinator filter by served counties and export results to CSV. Events from different
+sources are labeled with a SOURCE column in the results table.
 
 **End user:** A non-technical event coordinator. The frontend must work by opening a
 browser. No terminal, no installs, no configuration files to edit.
@@ -62,7 +64,13 @@ any external network (no built-in auth; raw SQL exposure risk).
 ### Data flow (pipeline run)
 
 ```
-Eventbrite Discovery API (Tier 1, optional — returns 404 on free tier)
+Manual file ingest (Tier 1b, optional — --ingest-file flag)
+         │  FestivalNet HTML My List export → parse_html() → EventItem
+         │  page_score=3, source_type="festivalnet"
+         │
+         ├──→ normalize_event() / parse_dates() / infer_event_type()
+         │
+Eventbrite Discovery API (Tier 1a, optional — returns 404 on free tier)
          │
          ├──→ normalize_event() / parse_dates() / infer_event_type()
          │
@@ -82,7 +90,8 @@ Serper.dev Google Events (Tier 2, required)
                     │
                     ▼
               exact_dedup()   ← pass 1: name|year|locality key
-                    │
+                    │   priority: festivalnet=0 > eventbrite=0 > serper_events=1 > serper_organic=2
+                    │   ties break on higher page_score
                     ▼
               fuzzy_merge_results()  ← pass 2: Jaccard ≥ 0.60 in year|county buckets
                     │
@@ -111,6 +120,8 @@ home-improvement-search-system/
 │       │                            #   data/**, or Dockerfile.pipeline changes
 │       └── codeql.yml               # CodeQL JS analysis: weekly + on push/PR to main
 ├── data/
+│   ├── festivalnet/                  # Directory for manual FestivalNet HTML drops
+│   │   └── .gitkeep
 │   ├── zip-county.json              # ZIP → {state, county} (~3,940 entries, VA/MD/PA/DC/NJ/DE)
 │   └── city-county.json             # "STATE:city" → {county} (~3,822 entries)
 ├── docs/
@@ -155,6 +166,11 @@ home-improvement-search-system/
 │   │   ├── serper.py                # Tier 2: Serper.dev + organics fallback
 │   │   ├── eventbrite.py            # Tier 1: Eventbrite Discovery API (optional, enterprise-only)
 │   │   └── eventbrite_enrich.py     # URL enrichment: /v3/events/{id}/ for Eventbrite-linked events
+│   ├── ingest/
+│   │   ├── __init__.py              # File dispatcher — format auto-detection
+│   │   ├── html_handler.py          # BS4 parser for FestivalNet My List HTML
+│   │   ├── csv_handler.py           # CSV parser with flexible column matching
+│   │   └── json_handler.py          # JSON parser (arrays, wrapped objects, nested locations)
 │   ├── spiders/
 │   │   └── .gitkeep                 # Phase 2 placeholder — Scrapy curated crawlers
 │   └── tests/
@@ -167,10 +183,12 @@ home-improvement-search-system/
 │       ├── test_serper.py
 │       ├── test_eventbrite.py
 │       ├── test_eventbrite_enrich.py
+│       ├── test_ingest.py
 │       └── fixtures/
 │           ├── serper_events_response.json
 │           ├── serper_organic_response.json
-│           └── eventbrite_response.json
+│           ├── eventbrite_response.json
+│           └── festivalnet_sample.html
 ├── Dockerfile                       # Frontend: nginx:alpine serving index.html
 ├── Dockerfile.pipeline              # Pipeline: python:3.12-slim, runs as UID 1000
 ├── docker-compose.yml               # All four services + volumes + networks
@@ -265,6 +283,44 @@ enrich → dedup → store → sync chain.
 
 **Do not start Phase 2 without explicit user instruction.**
 
+### FestivalNet Ingest — COMPLETE ✓
+
+Committed as `e2f29c7` on `main`. Deployed and verified on TrueNAS (`<TRUENAS_IP>`).
+
+- **`pipeline/ingest/` module** — HTML, CSV, and JSON file ingest handlers.
+  `ingest_file(path)` auto-detects format from file extension and dispatches to the
+  correct parser.
+- **HTML handler** (`html_handler.py`) — BS4 parser for FestivalNet My List HTML
+  exports. Extracts: event name, dates, venue, city, state, ZIP, event type,
+  attendance, contact info, web URL, description. Decodes JS-escaped emails.
+  Filters events to the 6 target states (MD/VA/PA/NJ/DE/DC). All parsed events
+  receive `source_type="festivalnet"` and `page_score=3` (highest priority).
+- **CSV handler** (`csv_handler.py`) — Flexible column name matching (e.g.
+  "Event Name" or "name" or "title"). ISO date detection.
+- **JSON handler** (`json_handler.py`) — Supports flat objects, `{events: [...]}`
+  wrappers, nested `location: {name, city, state, zip}` objects, and
+  schema.org-inspired `location.address` structures.
+- **Dedup priority** — `festivalnet`, `json_ingest`, and `csv_ingest` added to
+  `_SOURCE_PRIORITY` at level 0 (tied with eventbrite as highest). Ingested
+  events win dedup conflicts over Serper (`priority 1`) and Serper organics
+  (`priority 2`). Missing fields from lower-priority sources still merge in.
+- **Frontend source labeling** — Added `SOURCE` column to results table.
+  FestivalNet events display "FestivalNet" badge. Source filter pills at top
+  of results include festivalnet count. CSS added for `.source-pill.festivalnet`
+  (green border).
+- **CLI** — `python3 -m pipeline.run --once --ingest-file path/to/file.[html|csv|json]`
+- **TrueNAS deployment** — FestivalNet HTML files stored at
+  `/mnt/kevbot-store/stacks/home-improvement-show-search/data/festivalnet/`.
+  Mount `./data/festivalnet:/app/data/festivalnet:ro` in compose.yaml.
+
+**Key constraint:** FestivalNet.com ToS prohibits automated scraping. The ingest
+pipeline reads *locally saved HTML files* that the coordinator manually exports
+from their browser (Ctrl+S → "Web Page, HTML Only"). No HTTP requests to
+FestivalNet.com are made by the pipeline — zero ToS violation risk.
+
+**Current index stats:** ~1,900 total events (~356 FestivalNet, ~1,548 Serper).
+157/157 pipeline tests pass.
+
 ---
 
 ## 5. Deployment on TrueNAS
@@ -327,6 +383,25 @@ ssh truenas "curl -s http://<TRUENAS_IP>:7700/indexes/events/stats -H \"Authoriz
 # numberOfDocuments should be 950–1050 after a successful pipeline run
 ```
 
+### Manual FestivalNet ingest
+
+When the coordinator downloads fresh FestivalNet My List HTML exports:
+
+```bash
+# 1. Copy the HTML file to TrueNAS
+scp page.html truenas-local:/tmp/ && \
+ssh truenas-local "sudo mv /tmp/page.html /mnt/kevbot-store/stacks/home-improvement-show-search/data/festivalnet/"
+
+# 2. Stop scheduler, run ingest, restart scheduler
+ssh truenas-local "cd /mnt/kevbot-store/stacks/home-improvement-show-search && \
+  sudo docker compose stop hiss-pipeline && \
+  sudo docker compose run --rm hiss-pipeline python -m pipeline.run --once --ingest-file /app/data/festivalnet/page.html && \
+  sudo docker compose up -d hiss-pipeline"
+```
+
+FestivalNet events receive `page_score=3` (highest priority) and win all dedup conflicts.
+The frontend shows "FestivalNet" in the SOURCE column. Target-state filtering is automatic.
+
 ### First deployment (reference — already done; skip this section)
 
 1. Copy `compose.yaml` + `.env` to `/mnt/kevbot-store/stacks/home-improvement-show-search/`.
@@ -347,7 +422,7 @@ ssh truenas "curl -s http://<TRUENAS_IP>:7700/indexes/events/stats -H \"Authoriz
 ```bash
 cd /path/to/home-improvement-search-system
 python3 -m pytest pipeline/tests/
-# Expected: 126 passed
+# Expected: 157 passed
 ```
 
 Tests use the `responses` library and `unittest.mock` to intercept HTTP calls — no live
@@ -373,6 +448,17 @@ Logs sample output (up to 5 events) and exits without writing anything.
 ```bash
 SERPER_API_KEY=... MEILI_MASTER_KEY=... MEILI_URL=http://localhost:7700 \
   python3 -m pipeline.run --once
+```
+
+### Manual file ingest
+
+```bash
+# Ingest a FestivalNet My List HTML export
+python3 -m pipeline.run --once --ingest-file data/festivalnet/my-list.html
+
+# Ingest a CSV/JSON file
+python3 -m pipeline.run --once --ingest-file data/export.csv
+python3 -m pipeline.run --once --ingest-file data/export.json
 ```
 
 ### Regenerate Census lookup tables
@@ -425,7 +511,7 @@ npm run security:supplychain
 
 # Run pipeline unit tests (requires pipeline dependencies)
 python3 -m pytest pipeline/tests/
-# Expected: 136 passed
+# Expected: 157 passed
 ```
 
 ### Shell Script QA
@@ -545,6 +631,32 @@ retrieval endpoint — the token may need the `event_read:private` scope or a hi
 access tier. 401/403/404 are handled silently (debug-level log only); the pipeline
 continues normally with zero enriched events.
 
+### `pipeline/ingest/`
+
+Structured file ingest pipeline for manual data import. `ingest_file(path)` (in
+`__init__.py`) detects the file format from its extension and dispatches to the
+appropriate handler. All handlers return `list[EventItem]`.
+
+**HTML handler** (`html_handler.py`) — Parses browser-saved FestivalNet My List
+print-view HTML pages. Targets `<table class="ProMembersSearchFullDetailsTable">`
+elements inside `<div class="printed-pages">`. Extracts: event name (`h1[itemprop=name]`),
+dates (`.bold.font-color` span), venue/city/state/ZIP (from location `<div>` with
+`<a>` links containing `state_local=` params), event type (`"Event Type:"` field row),
+attendance (`"Attendance #:"` field row), web URL (`_extract_web_url()` — searches
+any td in any row for a `"Web:"` label and extracts the first valid `http` link),
+contact info (decodes JS-escaped emails from `eval(unescape(...))` blocks), and
+description. Filters events to the 6 target states (MD/VA/PA/NJ/DE/DC). All parsed
+events receive `source_type="festivalnet"` and `page_score=3`.
+
+**CSV handler** (`csv_handler.py`) — Reads CSV with `csv.reader`. Column detection is
+case-insensitive and matches aliases (e.g. "Event Name" → `name`, "Start Date" →
+`start_date`). ISO-format dates (`YYYY-MM-DD`) are used directly; human-readable dates
+pass through `parse_dates()`.
+
+**JSON handler** (`json_handler.py`) — Parses JSON arrays, `{events: [...]}` wrapped
+objects, and single objects. Supports nested `location: {name, city, state, zip}` and
+`location.address: {streetAddress, addressLocality, ...}` schema.org-style structures.
+
 ### `pipeline/normalize.py`
 
 Ports the `normalizeEvent` / `parseDates` / `inferEventType` / `organicsToEvents` logic
@@ -571,9 +683,9 @@ falling back to all states. First successful match wins.
 
 Two-pass deduplication. `exact_dedup()` (pass 1) keys on
 `normalized_name|year|locality` where locality is ZIP or state. On collision, the
-higher-priority source wins (`eventbrite > serper_events > serper_organic`); ties break
-on `page_score`. Missing fields (ZIP, county, city, venue) are merged from the
-lower-priority duplicate. `fuzzy_merge_results()` (pass 2) buckets events by `year|county`
+higher-priority source wins (`festivalnet` = `json_ingest` = `csv_ingest` = `eventbrite`
+> `serper_events` > `serper_organic`); ties break on `page_score`. Missing fields (ZIP,
+county, city, venue) are merged from the lower-priority duplicate. `fuzzy_merge_results()` (pass 2) buckets events by `year|county`
 — not `startDate|zip` as in the original JS — so the same event with slightly different
 parsed dates or missing ZIPs still lands in the same bucket. Within each bucket, events
 with Jaccard token similarity >= 0.60 on their `normalize_for_dedup()` names are merged;
@@ -855,6 +967,11 @@ inspection.
   Serper.dev as the sole data source. Do not treat Eventbrite failures as blocking errors.
 - **Do not start Phase 2 (Scrapy) without explicit instruction.** `pipeline/spiders/`
   exists as a placeholder only.
+- **FestivalNet file ingest is manual, not automated.** FestivalNet.com ToS prohibits
+  automated scraping even for paid accounts. The HTML handler reads *locally saved*
+  files that the coordinator exports from their browser. No HTTP requests to
+  FestivalNet.com are made by the pipeline. The workflow (`--ingest-file`) is
+  documented in Section 5.
 - **Never downgrade dependencies.** Version pins in `requirements.txt` and
   `requirements-dev.txt` must always point to the latest stable major.minor.* release.
   Never reduce a version pin below what is currently deployed — discuss with the user
