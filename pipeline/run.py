@@ -13,6 +13,11 @@ Optional:
     DATA_DIR            Census lookup files dir (default: ../data relative to this file)
     PIPELINE_SCHEDULE   Cron expression (default: 0 3 * * 0  = weekly Sunday 3am)
     DRY_RUN             Set to 'true' to skip all API calls and writes
+
+CLI flags:
+    --once              Run once and exit (no scheduler)
+    --dry-run           Skip all API calls and writes
+    --ingest-file PATH  Ingest a structured file (HTML/CSV/JSON) before fetchers
 """
 
 from __future__ import annotations
@@ -28,6 +33,7 @@ from .enrich import Enricher
 from .fetchers import eventbrite as eb_fetcher
 from .fetchers import eventbrite_enrich as eb_enrich
 from .fetchers import serper as serper_fetcher
+from .ingest import ingest_file
 from .store import Store
 from .sync import MeilisearchSync
 
@@ -75,7 +81,7 @@ def _load_config() -> dict:
     return config
 
 
-def run_pipeline(config: dict) -> None:
+def run_pipeline(config: dict, ingest_path: str | None = None) -> None:
     """One full pipeline pass: fetch → enrich → dedup → store → sync."""
     dry_run = config["dry_run"]
     fetched_at = datetime.now(timezone.utc).isoformat()
@@ -85,6 +91,17 @@ def run_pipeline(config: dict) -> None:
 
     enricher = Enricher(config["data_dir"])
     events = []
+
+    # ── Ingest: manual structured file ──────────────────────────────────────
+    if ingest_path:
+        logger.info("Ingesting structured file: %s", ingest_path)
+        ingested = ingest_file(ingest_path)
+        if ingested and not dry_run:
+            for event in ingested:
+                event.fetched_at = fetched_at
+                enricher.enrich(event)
+        events.extend(ingested)
+        logger.info("Ingested %d events", len(ingested))
 
     # ── Tier 1: Eventbrite ───────────────────────────────────────────────────
     if config["eventbrite_api_key"]:
@@ -165,9 +182,21 @@ def run_pipeline(config: dict) -> None:
 def main() -> None:
     config = _load_config()
 
-    once = "--once" in sys.argv or "--dry-run" in sys.argv or config["dry_run"]
+    ingest_path = None
+    args = []
+    for arg in sys.argv[1:]:
+        if arg == "--ingest-file":
+            idx = sys.argv.index(arg)
+            if idx + 1 < len(sys.argv):
+                ingest_path = sys.argv[idx + 1]
+        elif arg.startswith("--ingest-file="):
+            ingest_path = arg.split("=", 1)[1]
+        else:
+            args.append(arg)
+
+    once = "--once" in args or "--dry-run" in args or config["dry_run"]
     if once:
-        run_pipeline(config)
+        run_pipeline(config, ingest_path=ingest_path)
         return
 
     from apscheduler.schedulers.blocking import BlockingScheduler
@@ -190,13 +219,13 @@ def main() -> None:
         sys.exit(1)
 
     scheduler = BlockingScheduler()
-    scheduler.add_job(run_pipeline, trigger, args=[config])
+    scheduler.add_job(run_pipeline, trigger, args=[config, None])
     logger.info("Scheduler started — cron: %s", config["schedule"])
 
     # Run once immediately so data is available right after deploy
     logger.info("Running immediately on startup…")
     try:
-        run_pipeline(config)
+        run_pipeline(config, ingest_path=None)
     except (SystemExit, KeyboardInterrupt):
         raise
     except Exception:

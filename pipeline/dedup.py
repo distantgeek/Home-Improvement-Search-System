@@ -34,6 +34,9 @@ _MULTI_SPACE_RE = re.compile(r"\s+")
 
 # Lower number = higher priority
 _SOURCE_PRIORITY: dict[str, int] = {
+    "festivalnet": 0,
+    "json_ingest": 0,
+    "csv_ingest": 0,
     "eventbrite": 0,
     "serper_events": 1,
     "serper_organic": 2,

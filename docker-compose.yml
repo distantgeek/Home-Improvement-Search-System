@@ -57,7 +57,8 @@ services:
       PIPELINE_SCHEDULE: "${PIPELINE_SCHEDULE:-0 3 * * 0}"
     volumes:
       - pipeline_data:/data
-      - ./data:/app/data:ro      # zip-county.json, city-county.json (read-only)
+      - ./data:/app/data           # Census lookup files + festivalnet/ ingest directory
+      - ./data/festivalnet:/app/data/festivalnet
     networks:
       - internal
     depends_on:

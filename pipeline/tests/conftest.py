@@ -1,4 +1,5 @@
 """Shared test fixtures."""
+
 from __future__ import annotations
 
 import json
@@ -27,6 +28,11 @@ def eventbrite_payload() -> dict:
 
 
 @pytest.fixture
+def festivalnet_html_path() -> Path:
+    return FIXTURES_DIR / "festivalnet_sample.html"
+
+
+@pytest.fixture
 def tmp_db(tmp_path) -> str:
     """Temporary SQLite database path (file, not :memory:, for WAL compat)."""
     return str(tmp_path / "test.db")
@@ -41,4 +47,5 @@ def data_dir() -> Path:
 @pytest.fixture
 def enricher(data_dir):
     from pipeline.enrich import Enricher
+
     return Enricher(data_dir)
