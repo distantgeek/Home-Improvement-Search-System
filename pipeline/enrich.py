@@ -69,6 +69,35 @@ class Enricher:
         pattern = r"\b(" + "|".join(unique) + r")\b"
         return re.compile(pattern, re.IGNORECASE)
 
+    def _canonical_county(self, name: str, raw_name: str, state: str) -> str:
+        """Return canonical county name from COUNTIES, or stripped name if not found.
+
+        Tries the stripped name first, then the raw Census name (with suffix),
+        to handle cases like "Baltimore County" → "Baltimore" where the constant
+        expects "Baltimore County".
+        """
+        const = COUNTIES.get(state, [])
+        for c in const:
+            if c.lower() == name.lower():
+                return c
+        for c in const:
+            if c.lower() == raw_name.lower():
+                return c
+        return name
+
+    def _canonical_county_full(self, county: str, raw_name: str, state: str) -> str:
+        const = COUNTIES.get(state, [])
+        if county in const and re.search(
+            r"\b(?:County|City|Borough)\b", county, re.IGNORECASE
+        ):
+            return county
+        for c in const:
+            if c.lower() == county.lower():
+                if re.search(r"\b(?:County|City|Borough)\b", c, re.IGNORECASE):
+                    return c
+                return c + " County"
+        return raw_name
+
     def enrich(self, event: EventItem) -> EventItem:
         """Fill county/county_full/state/city from the event's address data."""
         addr_full = event.addr_full
@@ -77,9 +106,13 @@ class Enricher:
         if event.zip and event.zip in self._zip_county:
             entry = self._zip_county[event.zip]
             raw_county = entry["county"]
-            event.county = _strip_suffix(raw_county)
-            event.county_full = raw_county
-            event.state = entry["state"]
+            state = entry["state"]
+            stripped = _strip_suffix(raw_county)
+            event.county = self._canonical_county(stripped, raw_county, state)
+            event.county_full = self._canonical_county_full(
+                event.county, raw_county, state
+            )
+            event.state = state
 
         # ── Tier 2: Scan address/venue/title for known county names ──────────
         if not event.county and addr_full:
@@ -87,25 +120,25 @@ class Enricher:
             m = self._county_re.search(scan)
             if m:
                 matched = m.group(1)
-                # Prefer the event's existing state to avoid cross-state mismatches
-                # (e.g. "Frederick" exists in both MD and VA — prefer the known state)
                 candidate_states = ([event.state] if event.state else []) + [
                     s for s in STATE_ORDER if s != event.state
                 ]
                 for state_code in candidate_states:
-                    if any(c.lower() == matched.lower() for c in COUNTIES[state_code]):
-                        event.county = matched
-                        suffix = (
-                            ""
-                            if any(
-                                matched.lower().endswith(s)
-                                for s in (" county", " city", " borough")
-                            )
-                            else " County"
-                        )
-                        event.county_full = matched + suffix
-                        if not event.state:
-                            event.state = state_code
+                    for c in COUNTIES[state_code]:
+                        if c.lower() == matched.lower():
+                            event.county = c
+                            if re.search(
+                                r"\b(?:County|City|Borough)\b",
+                                c,
+                                re.IGNORECASE,
+                            ):
+                                event.county_full = c
+                            else:
+                                event.county_full = c + " County"
+                            if not event.state:
+                                event.state = state_code
+                            break
+                    if event.county:
                         break
 
         # ── Tier 3: City → county lookup ─────────────────────────────────────
@@ -120,8 +153,13 @@ class Enricher:
                     key = f"{state_code}:{city_title}"
                     if key in self._city_county:
                         raw_county = self._city_county[key]["county"]
-                        event.county = _strip_suffix(raw_county)
-                        event.county_full = raw_county
+                        stripped = _strip_suffix(raw_county)
+                        event.county = self._canonical_county(
+                            stripped, raw_county, state_code
+                        )
+                        event.county_full = self._canonical_county_full(
+                            event.county, raw_county, state_code
+                        )
                         event.state = state_code
                         if not event.city:
                             event.city = city
