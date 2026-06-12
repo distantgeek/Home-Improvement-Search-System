@@ -293,7 +293,7 @@ Committed as `e2f29c7` on `main`. Deployed and verified on TrueNAS (`<TRUENAS_IP
 - **HTML handler** (`html_handler.py`) — BS4 parser for FestivalNet My List HTML
   exports. Extracts: event name, dates, venue, city, state, ZIP, event type,
   attendance, contact info, web URL, description. Decodes JS-escaped emails.
-  Filters events to the 6 target states (MD/VA/PA/NJ/DE/DC). All parsed events
+  Filters events to the 10 target states. All parsed events
   receive `source_type="festivalnet"` and `page_score=3` (highest priority).
 - **CSV handler** (`csv_handler.py`) — Flexible column name matching (e.g.
   "Event Name" or "name" or "title"). ISO date detection.
@@ -645,7 +645,7 @@ dates (`.bold.font-color` span), venue/city/state/ZIP (from location `<div>` wit
 attendance (`"Attendance #:"` field row), web URL (`_extract_web_url()` — searches
 any td in any row for a `"Web:"` label and extracts the first valid `http` link),
 contact info (decodes JS-escaped emails from `eval(unescape(...))` blocks), and
-description. Filters events to the 6 target states (MD/VA/PA/NJ/DE/DC). All parsed
+description. Filters events to the 10 target states. All parsed
 events receive `source_type="festivalnet"` and `page_score=3`.
 
 **CSV handler** (`csv_handler.py`) — Reads CSV with `csv.reader`. Column detection is

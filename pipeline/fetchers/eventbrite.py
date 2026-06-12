@@ -5,6 +5,7 @@ and may require enterprise access. If the API returns HTTP 401/403, this
 fetcher logs a warning and returns an empty list — the pipeline continues
 with Serper.dev (Tier 2) as the sole source.
 """
+
 from __future__ import annotations
 
 import logging
@@ -28,17 +29,21 @@ _STATE_CENTROIDS: dict[str, tuple[float, float]] = {
     "DC": (38.9072, -77.0369),
     "NJ": (40.0583, -74.4057),
     "DE": (38.9108, -75.5277),
+    "MO": (38.5739, -92.6038),
+    "IL": (40.0795, -89.4347),
+    "OH": (40.2862, -82.7937),
+    "KS": (38.4985, -98.3184),
 }
 _SEARCH_RADIUS = "100mi"
 
 _KEYWORD_MAP: dict[str, str] = {
-    "Home Show":          "home show home improvement expo",
-    "Home & Garden":      "home garden show outdoor living",
-    "County Fair":        "county fair",
-    "State Fair":         "state fair",
-    "Art & Craft":        "art fair craft show",
-    "Food Festival":      "food festival wine festival",
-    "Fall Festival":      "fall festival harvest festival",
+    "Home Show": "home show home improvement expo",
+    "Home & Garden": "home garden show outdoor living",
+    "County Fair": "county fair",
+    "State Fair": "state fair",
+    "Art & Craft": "art fair craft show",
+    "Food Festival": "food festival wine festival",
+    "Fall Festival": "fall festival harvest festival",
     "Community Festival": "community festival cultural festival",
 }
 
@@ -83,7 +88,7 @@ def _normalize_eb_event(raw: dict, query_label: str) -> EventItem | None:
         primary_url=url,
         source_type="eventbrite",
         source_queries=[query_label],
-        page_score=2,   # Eventbrite URLs are canonical
+        page_score=2,  # Eventbrite URLs are canonical
         addr_full=addr_full,
     )
 
@@ -99,7 +104,9 @@ def fetch_all(
     Returns an empty list (without raising) if the API is inaccessible.
     """
     if dry_run:
-        logger.info("[dry-run] Would call Eventbrite API for %d states", len(STATE_ORDER))
+        logger.info(
+            "[dry-run] Would call Eventbrite API for %d states", len(STATE_ORDER)
+        )
         return []
 
     types = event_types or EVENT_TYPES
@@ -157,7 +164,9 @@ def fetch_all(
                 except ValueError as exc:
                     logger.error(
                         "Eventbrite returned non-JSON response for %s page %d: %s",
-                        state, page, exc,
+                        state,
+                        page,
+                        exc,
                     )
                     break
 
@@ -172,7 +181,8 @@ def fetch_all(
                     logger.warning(
                         "Eventbrite response missing pagination metadata for %s page %d "
                         "— stopping pagination (events may be incomplete)",
-                        state, page,
+                        state,
+                        page,
                     )
                     break
                 if not pagination.get("has_more_items", False):

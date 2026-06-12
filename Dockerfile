@@ -1,6 +1,7 @@
 FROM nginx:alpine
 
 COPY index.html /usr/share/nginx/html/index.html
+COPY data/counties.json /usr/share/nginx/html/data/counties.json
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80

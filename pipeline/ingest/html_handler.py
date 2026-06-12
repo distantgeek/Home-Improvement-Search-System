@@ -19,7 +19,7 @@ from urllib.parse import unquote
 
 from bs4 import BeautifulSoup, Tag
 
-from pipeline.constants import EVENT_TYPES
+from pipeline.constants import EVENT_TYPES, STATE_ORDER
 from pipeline.normalize import infer_event_type, parse_dates
 
 if TYPE_CHECKING:
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _SOURCE_TYPE = "festivalnet"
 _PAGE_SCORE = 3
-_TARGET_STATES = frozenset({"MD", "VA", "PA", "NJ", "DE", "DC"})
+_TARGET_STATES: frozenset = frozenset(STATE_ORDER)
 
 _EMAIL_SCRIPT_RE = re.compile(r"unescape\('([^']+)'\)")
 _MAILTO_RE = re.compile(r"mailto:([^\"'>\s]+)")

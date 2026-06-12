@@ -6,7 +6,8 @@
 # Sources:
 #   ZCTA-to-County: https://www2.census.gov/geo/docs/maps-data/data/rel2020/zcta520/
 #   ZCTA-to-Place:  https://www2.census.gov/geo/docs/maps-data/data/rel2020/zcta520/
-# Filtered to VA, MD, PA, DC, NJ, DE (state FIPS 51, 24, 42, 11, 34, 10).
+# Filtered to VA, MD, PA, DC, NJ, DE, MO, IL, OH, KS
+# (state FIPS 51, 24, 42, 11, 34, 10, 29, 17, 39, 20).
 # When a ZCTA spans multiple counties/places, the one with the largest
 # land-area overlap is chosen as the primary.
 #
@@ -39,7 +40,7 @@ curl -fsSL "$URL_COUNTY" -o "$RAW_COUNTY"
 echo "Downloading ZCTA-to-Place relationship file..."
 curl -fsSL "$URL_PLACE" -o "$RAW_PLACE"
 
-echo "Filtering to VA, MD, PA, DC, NJ, DE and selecting primary county per ZCTA..."
+echo "Filtering to VA, MD, PA, DC, NJ, DE, MO, IL, OH, KS and selecting primary county per ZCTA..."
 # County file is pipe-delimited, 18 columns (0-indexed shown):
 #   [1]  = GEOID_ZCTA5_20     5-digit ZIP
 #   [9]  = GEOID_COUNTY_20    5-digit county FIPS (first 2 = state FIPS)
@@ -49,7 +50,7 @@ awk -F'|' '
   NR == 1 { next }
   {
     state = substr($10, 1, 2)
-    if (state != "51" && state != "24" && state != "42" && state != "11" && state != "34" && state != "10") next
+    if (state != "51" && state != "24" && state != "42" && state != "11" && state != "34" && state != "10" && state != "29" && state != "17" && state != "39" && state != "20") next
     zip = $2; county = $11; area = $17 + 0
     if (zip == "" || county == "") next
     if (!(zip in best_area) || area > best_area[zip]) {
@@ -64,13 +65,13 @@ awk -F'|' '
 ' "$RAW_COUNTY" | sort >"$TMP/filtered_county.tsv"
 
 ROWS=$(wc -l <"$TMP/filtered_county.tsv")
-echo "Kept $ROWS unique ZCTAs across the 6 target states/jurisdictions."
+echo "Kept $ROWS unique ZCTAs across 10 target states/jurisdictions."
 
 echo "Emitting ZIP→county JSON..."
 python3 - "$TMP/filtered_county.tsv" "$OUT_ZIP" <<'PY'
 import json, sys
 inp, outp = sys.argv[1], sys.argv[2]
-fips_state = {"51":"VA","24":"MD","42":"PA","11":"DC","34":"NJ","10":"DE"}
+fips_state = {"51":"VA","24":"MD","42":"PA","11":"DC","34":"NJ","10":"DE","29":"MO","17":"IL","39":"OH","20":"KS"}
 data = {}
 with open(inp) as f:
     for line in f:
@@ -95,7 +96,7 @@ from collections import defaultdict
 
 place_file, county_file, outp = sys.argv[1], sys.argv[2], sys.argv[3]
 
-fips_state = {"51":"VA","24":"MD","42":"PA","11":"DC","34":"NJ","10":"DE"}
+fips_state = {"51":"VA","24":"MD","42":"PA","11":"DC","34":"NJ","10":"DE","29":"MO","17":"IL","39":"OH","20":"KS"}
 target_states = set(fips_state.keys())
 
 # Load ZIP→county mapping
@@ -154,4 +155,39 @@ with open(outp, "w") as f:
 print(f"Wrote {len(result)} city entries to {outp}")
 PY
 
-echo "Done: $OUT_ZIP and $OUT_CITY"
+echo "Validating county names in counties.json against Census data..."
+python3 - "$DATA_DIR/counties.json" "$OUT_ZIP" <<'PY'
+import json, sys
+from collections import defaultdict
+
+counties_file, zip_file = sys.argv[1], sys.argv[2]
+
+with open(counties_file) as f:
+    counties = json.load(f)["COUNTIES"]
+
+with open(zip_file) as f:
+    zip_county = json.load(f)
+
+census_counties = defaultdict(set)
+for entry in zip_county.values():
+    census_counties[entry["state"]].add(entry["county"])
+
+warnings = 0
+for state, names in counties.items():
+    for name in names:
+        name_lower = name.lower()
+        found = any(
+            name_lower == c.lower().replace(" county", "").replace(" city", "")
+            for c in census_counties.get(state, set())
+        )
+        if not found:
+            print(f"  WARNING: '{name}' ({state}) not found in Census ZIP data")
+            warnings += 1
+
+if warnings:
+    print(f"  {warnings} county name(s) without Census ZIP match — review counties.json")
+else:
+    print("  All county names validated")
+PY
+
+echo "Done: $OUT_ZIP, $OUT_CITY, $DATA_DIR/counties.json"

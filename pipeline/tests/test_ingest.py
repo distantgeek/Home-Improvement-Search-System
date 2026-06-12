@@ -50,9 +50,11 @@ def test_html_extracts_web_url(festivalnet_html_path):
 
 
 def test_html_filter_non_target_states(festivalnet_html_path):
+    from pipeline.constants import STATE_ORDER
+
     events = html_handler.parse_html(festivalnet_html_path)
     states = {e.state for e in events}
-    assert all(s in ("MD", "VA", "PA", "NJ", "DE", "DC") for s in states)
+    assert all(s in STATE_ORDER for s in states)
 
 
 def test_html_parses_dates(festivalnet_html_path):
