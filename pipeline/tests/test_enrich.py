@@ -150,3 +150,31 @@ class TestEnricher:
         )
         enriched = enricher.enrich(event)
         assert enriched.county == "Baltimore County"
+
+    def test_tier2_state_known_no_cross_state_county_match(self, enricher):
+        event = EventItem(
+            addr_full="Delaware State Fair, Harrington, DE",
+            name="Delaware State Fair",
+            state="DE",
+        )
+        enriched = enricher.enrich(event)
+        assert enriched.county != "Delaware"
+
+    def test_tier2_state_unknown_allows_cross_state_match(self, enricher):
+        event = EventItem(
+            addr_full="Delaware County Fair, Media, PA",
+            name="Delaware County Fair",
+        )
+        enriched = enricher.enrich(event)
+        assert enriched.county == "Delaware"
+        assert enriched.state == "PA"
+
+    def test_tier3_state_known_no_cross_state_city_match(self, enricher):
+        event = EventItem(
+            addr_full="Wilmington, DE",
+            name="Wilmington Home Show",
+            state="DE",
+        )
+        enriched = enricher.enrich(event)
+        assert enriched.county in ("New Castle", "")
+        assert enriched.county != "Will"

@@ -137,9 +137,10 @@ class Enricher:
             m = self._county_re.search(scan)
             if m:
                 matched = m.group(1)
-                candidate_states = ([event.state] if event.state else []) + [
-                    s for s in STATE_ORDER if s != event.state
-                ]
+                if event.state:
+                    candidate_states = [event.state]
+                else:
+                    candidate_states = list(STATE_ORDER)
                 for state_code in candidate_states:
                     for c in COUNTIES[state_code]:
                         if c.lower() == matched.lower():
@@ -162,9 +163,10 @@ class Enricher:
         if not event.county:
             city = self._extract_city(addr_full, event.venue)
             if city:
-                try_states = ([event.state] if event.state else []) + [
-                    s for s in STATE_ORDER if s != event.state
-                ]
+                if event.state:
+                    try_states = [event.state]
+                else:
+                    try_states = list(STATE_ORDER)
                 city_title = city.strip().title()
                 for state_code in try_states:
                     key = f"{state_code}:{city_title}"
