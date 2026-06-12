@@ -13,19 +13,31 @@ from .models import EventItem
 logger = logging.getLogger(__name__)
 
 _SUFFIX_RE = re.compile(
-    r"\s+(County|City|Borough|Township|Parish|District)\s*$", re.IGNORECASE
+    r"\s+(County|Borough|Township|Parish|District)\s*$", re.IGNORECASE
 )
+_CITY_SUFFIX_RE = re.compile(r"\s+city\s*$", re.IGNORECASE)
 _STATE_ZIP_RE = re.compile(r",?\s*[A-Z]{2}\s*\d{5}(-\d{4})?\s*$")
 _TRAILING_COMMA_RE = re.compile(r",\s*$")
 
 
 def _strip_suffix(name: str) -> str:
-    """Remove trailing County/City/etc. suffix, preserving 'Baltimore City'."""
-    stripped = _SUFFIX_RE.sub("", name).strip()
-    # Preserve intentional "City" in names like "Baltimore City"
-    if name.lower().endswith(" city") and not stripped.lower().endswith(" city"):
-        return name.replace(" city", " City").strip()
-    return stripped
+    """Remove trailing County/Borough/etc. suffix.
+
+    Handles Census naming conventions:
+    - "Frederick County" → "Frederick"
+    - "Baltimore city" → "Baltimore City" (preserves "City" for independent cities)
+    - "Charles City County" → "Charles City" (preserves "City" in county name)
+    - "St. Louis city" → "St. Louis City"
+    """
+    # Handle "X city" (Census format for independent cities) before stripping County
+    city_m = _CITY_SUFFIX_RE.search(name)
+    if city_m:
+        # "Baltimore city" → "Baltimore City", "St. Louis city" → "St. Louis City"
+        # But "Charles City County" should become "Charles City" (strip County only)
+        stripped = name[: city_m.start()] + " City"
+        # If there's also a "County" after "City", strip it
+        return _SUFFIX_RE.sub("", stripped).strip()
+    return _SUFFIX_RE.sub("", name).strip()
 
 
 class Enricher:
@@ -70,16 +82,21 @@ class Enricher:
         return re.compile(pattern, re.IGNORECASE)
 
     def _canonical_county(self, name: str, raw_name: str, state: str) -> str:
-        """Return canonical county name from COUNTIES, or stripped name if not found.
+        """Return canonical county name from COUNTIES.
 
-        Tries the stripped name first, then the raw Census name (with suffix),
-        to handle cases like "Baltimore County" → "Baltimore" where the constant
-        expects "Baltimore County".
+        Tries exact match first, then case-insensitive match.
+        The raw_name comes from zip-county.json (already normalized to
+        counties.json format) or from city-county.json (also normalized).
+        Falls back to the stripped name if no match found.
         """
         const = COUNTIES.get(state, [])
         for c in const:
+            if c == name:
+                return c
+        for c in const:
             if c.lower() == name.lower():
                 return c
+        # Fallback: try raw_name (may be useful for edge cases)
         for c in const:
             if c.lower() == raw_name.lower():
                 return c

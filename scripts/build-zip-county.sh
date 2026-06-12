@@ -68,15 +68,46 @@ ROWS=$(wc -l <"$TMP/filtered_county.tsv")
 echo "Kept $ROWS unique ZCTAs across 10 target states/jurisdictions."
 
 echo "Emitting ZIP→county JSON..."
-python3 - "$TMP/filtered_county.tsv" "$OUT_ZIP" <<'PY'
-import json, sys
-inp, outp = sys.argv[1], sys.argv[2]
+python3 - "$TMP/filtered_county.tsv" "$OUT_ZIP" "$DATA_DIR/counties.json" <<'PY'
+import json, re, sys
+from pathlib import Path
+
+inp, outp, counties_path = sys.argv[1], sys.argv[2], sys.argv[3]
 fips_state = {"51":"VA","24":"MD","42":"PA","11":"DC","34":"NJ","10":"DE","29":"MO","17":"IL","39":"OH","20":"KS"}
+
+with open(counties_path) as f:
+    counties_by_state = json.load(f)["COUNTIES"]
+
+def normalize_county(census_name: str, state: str) -> str:
+    """Map a Census county name to the canonical name in counties.json.
+
+    Census uses 'X County', 'X city', 'X borough', etc.
+    counties.json uses bare names ('Frederick') or 'X City' for independent cities.
+    """
+    canonical = {c.lower(): c for c in counties_by_state.get(state, [])}
+    lower = census_name.lower()
+
+    if lower in canonical:
+        return canonical[lower]
+
+    stripped = re.sub(r'\s+(county|city|borough|township|parish|district)\s*$', '', lower, flags=re.IGNORECASE).strip()
+    if stripped in canonical:
+        return canonical[stripped]
+
+    if " " in stripped:
+        nospace = stripped.replace(" ", "")
+        if nospace in canonical:
+            return canonical[nospace]
+
+    return census_name
+
 data = {}
 with open(inp) as f:
     for line in f:
         zip_, fips, county = line.rstrip("\n").split("\t")
-        data[zip_] = {"state": fips_state[fips], "county": county}
+        state = fips_state[fips]
+        data[zip_] = {"state": state, "county": normalize_county(county, state)}
+
 with open(outp, "w") as f:
     json.dump(data, f, separators=(",", ":"), sort_keys=True)
     f.write("\n")
@@ -90,26 +121,44 @@ echo "Building city→county mapping from ZCTA-to-Place..."
 #   [10] = NAMELSAD_PLACE_20  e.g. "Frederick city"
 #   [16] = AREALAND_PART
 # Join with county data on ZCTA, then aggregate by place+state → most common county
-python3 - "$RAW_PLACE" "$TMP/filtered_county.tsv" "$OUT_CITY" <<'PY'
+python3 - "$RAW_PLACE" "$TMP/filtered_county.tsv" "$OUT_CITY" "$DATA_DIR/counties.json" <<'PY'
 import json, sys, re
 from collections import defaultdict
 
-place_file, county_file, outp = sys.argv[1], sys.argv[2], sys.argv[3]
+place_file, county_file, outp, counties_path = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 
 fips_state = {"51":"VA","24":"MD","42":"PA","11":"DC","34":"NJ","10":"DE","29":"MO","17":"IL","39":"OH","20":"KS"}
 target_states = set(fips_state.keys())
 
-# Load ZIP→county mapping
+with open(counties_path) as f:
+    counties_by_state = json.load(f)["COUNTIES"]
+
+def normalize_county(census_name: str, state: str) -> str:
+    canonical = {c.lower(): c for c in counties_by_state.get(state, [])}
+    lower = census_name.lower()
+    if lower in canonical:
+        return canonical[lower]
+    stripped = re.sub(r'\s+(county|city|borough|township|parish|district)\s*$', '', lower, flags=re.IGNORECASE).strip()
+    if stripped in canonical:
+        return canonical[stripped]
+    if " " in stripped:
+        nospace = stripped.replace(" ", "")
+        if nospace in canonical:
+            return canonical[nospace]
+    return census_name
+
+# Load ZIP→county mapping (already normalized)
 zip_county = {}
 with open(county_file) as f:
     for line in f:
         zip_, fips, county = line.rstrip("\n").split("\t")
-        zip_county[zip_] = (fips_state[fips], county)
+        state = fips_state[fips]
+        zip_county[zip_] = (state, normalize_county(county, state))
 
 # Parse place file, join with county, aggregate by (state, place) → county counts
 place_counts = defaultdict(lambda: defaultdict(int))
 with open(place_file, encoding="utf-8") as f:
-    header = f.readline()  # skip header
+    header = f.readline()
     for line in f:
         parts = line.split("|")
         if len(parts) < 17:
@@ -129,7 +178,6 @@ with open(place_file, encoding="utf-8") as f:
             continue
 
         state_abbr, county = zip_county[zip_]
-        # Clean place name: strip suffixes like " city", " borough", " CDP", " town", " village"
         clean = re.sub(r'\s+(city|borough|town|village|township|CDP|municipality)\s*$', '', place_name, flags=re.IGNORECASE).strip()
         if not clean:
             continue
@@ -142,7 +190,6 @@ with open(place_file, encoding="utf-8") as f:
         key = f"{state_abbr}:{clean}"
         place_counts[key][county] += area
 
-# For each city, pick the county with the largest total area overlap
 result = {}
 for key, county_areas in place_counts.items():
     best_county = max(county_areas, key=county_areas.get)
@@ -155,7 +202,7 @@ with open(outp, "w") as f:
 print(f"Wrote {len(result)} city entries to {outp}")
 PY
 
-echo "Validating county names in counties.json against Census data..."
+echo "Validating county names in zip-county.json against counties.json..."
 python3 - "$DATA_DIR/counties.json" "$OUT_ZIP" <<'PY'
 import json, sys
 from collections import defaultdict
@@ -175,19 +222,14 @@ for entry in zip_county.values():
 warnings = 0
 for state, names in counties.items():
     for name in names:
-        name_lower = name.lower()
-        found = any(
-            name_lower == c.lower().replace(" county", "").replace(" city", "")
-            for c in census_counties.get(state, set())
-        )
-        if not found:
-            print(f"  WARNING: '{name}' ({state}) not found in Census ZIP data")
+        if name not in census_counties.get(state, set()):
+            print(f"  WARNING: '{name}' ({state}) not found in normalized Census ZIP data")
             warnings += 1
 
 if warnings:
     print(f"  {warnings} county name(s) without Census ZIP match — review counties.json")
 else:
-    print("  All county names validated")
+    print("  All county names validated — exact match with Census data")
 PY
 
 echo "Done: $OUT_ZIP, $OUT_CITY, $DATA_DIR/counties.json"

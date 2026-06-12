@@ -1,4 +1,5 @@
 """Tests for pipeline.enrich — three-tier county resolution."""
+
 import pytest
 
 from pipeline.models import EventItem
@@ -7,14 +8,18 @@ from pipeline.models import EventItem
 class TestEnricher:
     def test_tier1_zip_lookup_known_zip(self, enricher):
         # 21701 is Frederick, MD
-        event = EventItem(zip="21701", addr_full="797 E Patrick St, Frederick, MD 21701")
+        event = EventItem(
+            zip="21701", addr_full="797 E Patrick St, Frederick, MD 21701"
+        )
         enriched = enricher.enrich(event)
         assert enriched.county == "Frederick"
         assert enriched.county_full == "Frederick County"
         assert enriched.state == "MD"
 
     def test_tier1_dc_zip(self, enricher):
-        event = EventItem(zip="20001", addr_full="801 Mt Vernon Pl NW, Washington, DC 20001")
+        event = EventItem(
+            zip="20001", addr_full="801 Mt Vernon Pl NW, Washington, DC 20001"
+        )
         enriched = enricher.enrich(event)
         assert enriched.state == "DC"
 
@@ -52,7 +57,10 @@ class TestEnricher:
     def test_county_full_retains_suffix(self, enricher):
         event = EventItem(zip="21701", addr_full="Frederick, MD 21701")
         enriched = enricher.enrich(event)
-        assert "County" in enriched.county_full or enriched.county_full == "District of Columbia"
+        assert (
+            "County" in enriched.county_full
+            or enriched.county_full == "District of Columbia"
+        )
 
     def test_city_extracted_from_address(self, enricher):
         event = EventItem(
@@ -85,3 +93,60 @@ class TestEnricher:
         enriched = enricher.enrich(event)
         # Should resolve via Tier 2 county name scan
         assert enriched.county == "Frederick"
+
+    def test_tier1_baltimore_city_zip(self, enricher):
+        event = EventItem(zip="21201", addr_full="Baltimore, MD 21201")
+        enriched = enricher.enrich(event)
+        assert enriched.county == "Baltimore City"
+        assert enriched.county_full == "Baltimore City"
+
+    def test_tier1_baltimore_county_zip(self, enricher):
+        event = EventItem(zip="21093", addr_full="Towson, MD 21093")
+        enriched = enricher.enrich(event)
+        assert enriched.county == "Baltimore County"
+        assert enriched.county_full == "Baltimore County"
+
+    def test_tier1_st_louis_city_zip(self, enricher):
+        event = EventItem(zip="63101", addr_full="St. Louis, MO 63101")
+        enriched = enricher.enrich(event)
+        assert enriched.county == "St. Louis City"
+        assert enriched.county_full == "St. Louis City"
+
+    def test_tier1_st_louis_county_zip(self, enricher):
+        event = EventItem(zip="63105", addr_full="Clayton, MO 63105")
+        enriched = enricher.enrich(event)
+        assert enriched.county == "St. Louis"
+        assert enriched.county_full == "St. Louis County"
+
+    def test_tier1_alexandria_city_zip(self, enricher):
+        event = EventItem(zip="22301", addr_full="Alexandria, VA 22301")
+        enriched = enricher.enrich(event)
+        assert enriched.county == "Alexandria City"
+        assert enriched.county_full == "Alexandria City"
+
+    def test_tier1_richmond_city_zip(self, enricher):
+        event = EventItem(zip="23219", addr_full="Richmond, VA 23219")
+        enriched = enricher.enrich(event)
+        assert enriched.county == "Richmond City"
+        assert enriched.county_full == "Richmond City"
+
+    def test_tier1_dewitt_county_il(self, enricher):
+        event = EventItem(zip="61727", addr_full="Clinton, IL 61727")
+        enriched = enricher.enrich(event)
+        assert enriched.county == "DeWitt"
+
+    def test_tier2_baltimore_city_in_address(self, enricher):
+        event = EventItem(
+            addr_full="Baltimore City, MD",
+            name="Baltimore City Home Show",
+        )
+        enriched = enricher.enrich(event)
+        assert enriched.county == "Baltimore City"
+
+    def test_tier2_baltimore_county_in_address(self, enricher):
+        event = EventItem(
+            addr_full="Baltimore County, MD",
+            name="Baltimore County Fair",
+        )
+        enriched = enricher.enrich(event)
+        assert enriched.county == "Baltimore County"
