@@ -5,14 +5,74 @@ Port of index.html normalization functions:
   inferEventType   → infer_event_type
   normalizeEvent   → normalize_event
 """
+
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date, datetime
 
 from dateutil import parser as dateutil_parser
 
+logger = logging.getLogger(__name__)
+
 from .models import EventItem
+
+# ── Organic scraper: non-target state guard ───────────────────────────────────
+# Full state names for states outside our 10-state coverage area.
+# Used to reject organic Serper results that match the event keyword regex
+# but whose snippet text reveals the event is in a non-target state.
+_NON_TARGET_STATES: frozenset[str] = frozenset(
+    {
+        "Alabama",
+        "Alaska",
+        "Arizona",
+        "Arkansas",
+        "California",
+        "Colorado",
+        "Connecticut",
+        "Florida",
+        "Georgia",
+        "Hawaii",
+        "Idaho",
+        "Indiana",
+        "Iowa",
+        "Kansas",
+        "Kentucky",
+        "Louisiana",
+        "Maine",
+        "Massachusetts",
+        "Michigan",
+        "Minnesota",
+        "Mississippi",
+        "Montana",
+        "Nebraska",
+        "Nevada",
+        "New Hampshire",
+        "New Mexico",
+        "New York",
+        "North Carolina",
+        "North Dakota",
+        "Oklahoma",
+        "Oregon",
+        "Rhode Island",
+        "South Carolina",
+        "South Dakota",
+        "Tennessee",
+        "Texas",
+        "Utah",
+        "Vermont",
+        "West Virginia",
+        "Wisconsin",
+        "Wyoming",
+    }
+)
+# Also match address-style state codes: ", TN", ", AL", etc.
+_ADDR_STATE_RE = re.compile(r",\s*([A-Z]{2})\b")
+# Target state abbreviations (must match pipeline.constants.STATE_ORDER)
+_TARGET_ABBREVIATIONS: frozenset[str] = frozenset(
+    {"MD", "VA", "PA", "NJ", "DE", "DC", "MO", "IL", "OH", "KS"}
+)
 
 # ── Regex constants (ported from JS) ─────────────────────────────────────────
 
@@ -70,14 +130,12 @@ def organics_to_events(organics: list[dict]) -> list[dict]:
         link = o.get("link", "")
         if SKIP_DOMAIN_RE.search(link):
             continue
-        combined = (o.get("title", "") + " " + o.get("snippet", ""))
+        combined = o.get("title", "") + " " + o.get("snippet", "")
         if not ORGANIC_EVENT_RE.search(combined):
             continue
 
         att_m = ATTENDANCE_RE.search(combined)
-        attendance = (
-            (att_m.group(1) or att_m.group(2) or "").strip() if att_m else ""
-        )
+        attendance = (att_m.group(1) or att_m.group(2) or "").strip() if att_m else ""
 
         snippet = o.get("snippet", "")
         email_m = EMAIL_RE.search(snippet)
@@ -161,7 +219,9 @@ def parse_dates(date_input: str | dict | None) -> tuple[str, str]:
     # before applying range-split logic which would mangle the hyphens.
     if isinstance(raw_start, str) and "T" in raw_start:
         try:
-            start = dateutil_parser.parse(raw_start.split("T")[0], default=datetime(date.today().year, 1, 1))
+            start = dateutil_parser.parse(
+                raw_start.split("T")[0], default=datetime(date.today().year, 1, 1)
+            )
             start_date = start.strftime("%Y-%m-%d")
             return (start_date, start_date)
         except (ValueError, OverflowError, TypeError):
@@ -178,7 +238,9 @@ def parse_dates(date_input: str | dict | None) -> tuple[str, str]:
         clean_start = f"{clean_start}, {year_fallback}"
 
     try:
-        start = dateutil_parser.parse(clean_start, default=datetime(date.today().year, 1, 1))
+        start = dateutil_parser.parse(
+            clean_start, default=datetime(date.today().year, 1, 1)
+        )
         start_date = start.strftime("%Y-%m-%d")
     except (ValueError, OverflowError, TypeError):
         return ("", "")
@@ -190,7 +252,9 @@ def parse_dates(date_input: str | dict | None) -> tuple[str, str]:
         day = m.group(2)
         year = m.group(3) or str(start.year)
         try:
-            end = dateutil_parser.parse(f"{month} {day}, {year}", default=datetime(date.today().year, 1, 1))
+            end = dateutil_parser.parse(
+                f"{month} {day}, {year}", default=datetime(date.today().year, 1, 1)
+            )
             if end >= start:
                 return (start_date, end.strftime("%Y-%m-%d"))
         except (ValueError, OverflowError):
@@ -206,11 +270,39 @@ def infer_event_type(query: str, title: str) -> str:
         return "State Fair"
     if "county fair" in s or _COUNTY_FAIR_RE.search(s):
         return "County Fair"
-    if any(k in s for k in ("harvest festival", "fall festival", "pumpkin festival", "oktoberfest")):
+    if any(
+        k in s
+        for k in (
+            "harvest festival",
+            "fall festival",
+            "pumpkin festival",
+            "oktoberfest",
+        )
+    ):
         return "Fall Festival"
-    if any(k in s for k in ("food festival", "wine festival", "beer festival", "seafood", "strawberry festival", "taste of")):
+    if any(
+        k in s
+        for k in (
+            "food festival",
+            "wine festival",
+            "beer festival",
+            "seafood",
+            "strawberry festival",
+            "taste of",
+        )
+    ):
         return "Food Festival"
-    if any(k in s for k in ("cultural festival", "heritage festival", "community festival", "spring festival", "summer festival", "outdoor festival")):
+    if any(
+        k in s
+        for k in (
+            "cultural festival",
+            "heritage festival",
+            "community festival",
+            "spring festival",
+            "summer festival",
+            "outdoor festival",
+        )
+    ):
         return "Community Festival"
     if "garden" in s or "outdoor living" in s:
         return "Home & Garden"
@@ -268,6 +360,32 @@ def normalize_event(
     zip_code = zip_m.group(1) if zip_m else ""
 
     source_type = evt.get("_source_type", "serper_organic")
+
+    # ── Organic false-positive guard ──────────────────────────────────────
+    # Serper organic results come from a whole-page snippet. A page about
+    # fairs in multiple states can match the event keyword regex even if the
+    # specific event the title references is outside our coverage area.
+    # If the snippet/address text mentions a non-target state (by full name
+    # or address-style code), reject this event.
+    if source_type == "serper_organic" and addr_full:
+        addr_lower = addr_full.lower()
+        rejected = False
+        for nt_name in _NON_TARGET_STATES:
+            if nt_name.lower() in addr_lower:
+                rejected = True
+                break
+        if not rejected:
+            for m in _ADDR_STATE_RE.finditer(addr_full):
+                st = m.group(1)
+                if st not in _TARGET_ABBREVIATIONS:
+                    rejected = True
+                    break
+        if rejected:
+            logger.debug(
+                "Rejected organic false-positive: %r (addr mentions non-target state)",
+                name[:60],
+            )
+            return None
 
     url = evt.get("link", "")
     current_year = date.today().year
