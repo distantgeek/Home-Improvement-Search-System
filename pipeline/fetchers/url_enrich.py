@@ -33,7 +33,6 @@ _MAX_WORKERS = 5
 _REQUEST_TIMEOUT = 12
 _DOMAIN_DELAY_SECONDS = 2.0
 _MAX_URLS_PER_EVENT = 3
-_MAX_EVENTS = 500
 
 _PRIVATE_NETWORKS = [
     ipaddress.ip_network("10.0.0.0/8"),
@@ -299,7 +298,12 @@ def _fetch_and_extract(url: str) -> dict | None:
     return None
 
 
-def _enrich_one(event: EventItem) -> bool:
+def _enrich_one(event: EventItem) -> str:
+    """Try to enrich a single event from its URLs.
+
+    Returns a result tag: "enriched", "no_url", "blocked", "fetch_failed",
+    "no_address", or "no_field_update".
+    """
     urls = []
     if event.primary_url:
         urls.append(event.primary_url)
@@ -308,18 +312,26 @@ def _enrich_one(event: EventItem) -> bool:
         if u and u not in urls:
             urls.append(u)
     urls = urls[:_MAX_URLS_PER_EVENT]
+    if not urls:
+        return "no_url"
     for url in urls:
         fields = _fetch_and_extract(url)
-        if fields:
-            if _apply_enrichment(event, fields):
-                event.sources.append(
-                    {
-                        "url": url,
-                        "sourceType": "url_enrich",
-                    }
-                )
-                return True
-    return False
+        if fields is None:
+            if _is_blocked_url(url):
+                return "blocked"
+            continue
+        if not fields.get("zip") and not fields.get("city"):
+            return "no_address"
+        if _apply_enrichment(event, fields):
+            event.sources.append(
+                {
+                    "url": url,
+                    "sourceType": "url_enrich",
+                }
+            )
+            return "enriched"
+        return "no_field_update"
+    return "fetch_failed"
 
 
 def enrich_from_urls(
@@ -327,9 +339,7 @@ def enrich_from_urls(
     *,
     max_workers: int = _MAX_WORKERS,
 ) -> int:
-    candidates = [e for e in events if not e.zip or not e.county or not e.city][
-        :_MAX_EVENTS
-    ]
+    candidates = [e for e in events if not e.zip or not e.county or not e.city]
     logger.info(
         "URL enrich: %d candidates (of %d total events)",
         len(candidates),
@@ -337,15 +347,36 @@ def enrich_from_urls(
     )
     if not candidates:
         return 0
-    enriched = 0
+
+    counters: dict[str, int] = {
+        "enriched": 0,
+        "no_url": 0,
+        "blocked": 0,
+        "fetch_failed": 0,
+        "no_address": 0,
+        "no_field_update": 0,
+    }
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(_enrich_one, ev): ev for ev in candidates}
         for future in as_completed(futures):
             ev = futures[future]
             try:
-                if future.result():
-                    enriched += 1
+                result = future.result()
+                counters[result] = counters.get(result, 0) + 1
             except Exception as exc:
                 logger.error("Unexpected error enriching %s: %s", ev.name[:60], exc)
-    logger.info("URL enrich: updated %d of %d candidates", enriched, len(candidates))
-    return enriched
+                counters["fetch_failed"] = counters.get("fetch_failed", 0) + 1
+
+    logger.info(
+        "URL enrich results: %d enriched, %d no_url, %d blocked, "
+        "%d fetch_failed, %d no_address, %d no_field_update "
+        "(of %d candidates)",
+        counters["enriched"],
+        counters["no_url"],
+        counters["blocked"],
+        counters["fetch_failed"],
+        counters["no_address"],
+        counters["no_field_update"],
+        len(candidates),
+    )
+    return counters["enriched"]
