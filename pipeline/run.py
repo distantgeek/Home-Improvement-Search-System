@@ -33,6 +33,7 @@ from .enrich import Enricher
 from .fetchers import eventbrite as eb_fetcher
 from .fetchers import eventbrite_enrich as eb_enrich
 from .fetchers import serper as serper_fetcher
+from .fetchers import url_enrich
 from .ingest import ingest_file
 from .store import Store
 from .sync import MeilisearchSync
@@ -134,6 +135,14 @@ def run_pipeline(config: dict, ingest_path: str | None = None) -> None:
         logger.info("Enriching Eventbrite-linked events with structured address data…")
         eb_updated = eb_enrich.enrich_from_urls(events, config["eventbrite_api_key"])
         logger.info("Eventbrite address enrichment: updated %d events", eb_updated)
+
+    # ── URL enrichment (scrape event pages for address data) ──────────────────
+    # For events still missing ZIP/county/city, fetch their web pages and extract
+    # structured address data from JSON-LD, microdata, or heuristic regex.
+    if not dry_run:
+        logger.info("Enriching events with address data from web pages…")
+        url_updated = url_enrich.enrich_from_urls(events)
+        logger.info("URL enrichment: updated %d events", url_updated)
 
     # ── Enrich ───────────────────────────────────────────────────────────────
     logger.info("Enriching…")

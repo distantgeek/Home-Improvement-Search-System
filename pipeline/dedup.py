@@ -40,6 +40,8 @@ _SOURCE_PRIORITY: dict[str, int] = {
     "csv_ingest": 0,
     "eventbrite": 0,
     "serper_events": 1,
+    "url_enrich": 1,
+    "eventbrite_enrich": 1,
     "serper_organic": 2,
 }
 

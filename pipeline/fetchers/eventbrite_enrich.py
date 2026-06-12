@@ -7,6 +7,7 @@ from the Eventbrite Event Retrieval API (/v3/events/{id}/).
 This is distinct from the Discovery API (enterprise-only, handled in
 eventbrite.py). The retrieval endpoint is available on the free OAuth tier.
 """
+
 from __future__ import annotations
 
 import logging
@@ -29,14 +30,26 @@ _ID_RE = re.compile(r"/e/(?:[^/?#]*?-)?(\d{5,20})(?:[/?#]|$)")
 # Pure function words only — domain terms like "home", "show", "fair" are
 # intentionally kept so short event names ("Home Show", "County Fair") still
 # produce tokens that can match. See _validate_response for the empty-set fallback.
-_STOP_WORDS = frozenset({
-    "the", "a", "an", "of", "and", "in", "at", "for", "to", "with",
-})
+_STOP_WORDS = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "of",
+        "and",
+        "in",
+        "at",
+        "for",
+        "to",
+        "with",
+    }
+)
 
 _MAX_WORKERS = 5  # conservative — free tier allows 2 000 calls/hour
 
 
 # ── URL validation ──────────────────────────────────────────────────────────
+
 
 def extract_eventbrite_id(url: str) -> str | None:
     """Return the Eventbrite numeric event ID from a URL, or None if invalid.
@@ -68,9 +81,11 @@ def extract_eventbrite_id(url: str) -> str | None:
 
 # ── Response validation ─────────────────────────────────────────────────────
 
+
 def _name_tokens(text: str) -> set[str]:
     return {
-        w for w in re.findall(r"\w+", text.lower())
+        w
+        for w in re.findall(r"\w+", text.lower())
         if len(w) > 3 and w not in _STOP_WORDS
     }
 
@@ -86,7 +101,9 @@ def _validate_response(raw: dict, expected_id: str, event: EventItem) -> bool:
     if str(raw.get("id", "")) != expected_id:
         logger.warning(
             "Eventbrite ID mismatch: requested=%s got=%s (url=%s)",
-            expected_id, raw.get("id"), event.primary_url,
+            expected_id,
+            raw.get("id"),
+            event.primary_url,
         )
         return False
 
@@ -103,7 +120,9 @@ def _validate_response(raw: dict, expected_id: str, event: EventItem) -> bool:
         logger.warning(
             "Eventbrite name mismatch — skipping enrichment for event %s "
             "(api=%r local=%r)",
-            expected_id, api_name[:80], event.name[:80],
+            expected_id,
+            api_name[:80],
+            event.name[:80],
         )
         return False
 
@@ -111,6 +130,7 @@ def _validate_response(raw: dict, expected_id: str, event: EventItem) -> bool:
 
 
 # ── Field update ────────────────────────────────────────────────────────────
+
 
 def _apply_enrichment(event: EventItem, raw: dict) -> None:
     """Overwrite address fields on the event with structured Eventbrite data.
@@ -143,6 +163,7 @@ def _apply_enrichment(event: EventItem, raw: dict) -> None:
 
 
 # ── Per-event fetch ─────────────────────────────────────────────────────────
+
 
 def _enrich_one(event: EventItem, event_id: str, api_key: str) -> bool:
     """Fetch and apply structured address data for a single event.
@@ -181,20 +202,25 @@ def _enrich_one(event: EventItem, event_id: str, api_key: str) -> bool:
     try:
         raw = resp.json()
     except ValueError as exc:
-        logger.warning(
-            "Eventbrite non-JSON response for event %s: %s", event_id, exc
-        )
+        logger.warning("Eventbrite non-JSON response for event %s: %s", event_id, exc)
         return False
 
     if not _validate_response(raw, event_id, event):
         return False
 
     _apply_enrichment(event, raw)
+    event.sources.append(
+        {
+            "url": _EVENT_API_URL.format(id=event_id),
+            "sourceType": "eventbrite_enrich",
+        }
+    )
     logger.debug("Enriched event %s (%s) from Eventbrite", event_id, event.name[:60])
     return True
 
 
 # ── Public entry point ──────────────────────────────────────────────────────
+
 
 def enrich_from_urls(
     events: list[EventItem],
@@ -231,7 +257,8 @@ def enrich_from_urls(
 
     logger.info(
         "Eventbrite enrich: %d candidates from %d events",
-        len(candidates), len(events),
+        len(candidates),
+        len(events),
     )
     if not candidates:
         return 0

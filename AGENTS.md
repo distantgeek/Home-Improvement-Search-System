@@ -85,12 +85,20 @@ Serper.dev Google Events (Tier 2, required)
                     │   events whose primary_url/sources point to Eventbrite
                     │   get structured venue/city/state/ZIP from /v3/events/{id}/
                     │   (requires Eventbrite key with retrieval scope; skipped on 401/403/404)
+                    │   adds sourceType "eventbrite_enrich" to sources list
+                    ▼
+              url_enrich.enrich_from_urls()  ← web page enrichment:
+                    │   for events still missing ZIP/county/city, fetches primary_url
+                    │   and alternate sources; extracts address from JSON-LD (priority 1),
+                    │   microdata (priority 2), or heuristic regex (priority 3)
+                    │   SSRF protection: blocks private IPs, non-HTTPS, internal hostnames
+                    │   adds sourceType "url_enrich" to sources list
                     ▼
               enrich()  ← three-tier county/ZIP resolution
                     │
                     ▼
               exact_dedup()   ← pass 1: name|year|locality key
-                    │   priority: festivalnet=0 > eventbrite=0 > serper_events=1 > serper_organic=2
+                    │   priority: festivalnet=0 > eventbrite=0 > serper_events=1 > url_enrich=1 > eventbrite_enrich=1 > serper_organic=2
                     │   ties break on higher page_score
                     ▼
               fuzzy_merge_results()  ← pass 2: Jaccard ≥ 0.60 in year|county buckets
@@ -165,7 +173,8 @@ home-improvement-search-system/
 │   │   ├── __init__.py
 │   │   ├── serper.py                # Tier 2: Serper.dev + organics fallback
 │   │   ├── eventbrite.py            # Tier 1: Eventbrite Discovery API (optional, enterprise-only)
-│   │   └── eventbrite_enrich.py     # URL enrichment: /v3/events/{id}/ for Eventbrite-linked events
+│   │   ├── eventbrite_enrich.py     # URL enrichment: /v3/events/{id}/ for Eventbrite-linked events
+│   │   └── url_enrich.py           # URL enrichment: scrape event pages for address data (JSON-LD, microdata, heuristic)
 │   ├── ingest/
 │   │   ├── __init__.py              # File dispatcher — format auto-detection
 │   │   ├── html_handler.py          # BS4 parser for FestivalNet My List HTML
@@ -211,7 +220,7 @@ home-improvement-search-system/
 ### Phase 0 — COMPLETE ✓
 
 All four services deployed and healthy on TrueNAS (`<TRUENAS_IP>`).
-**127/127 tests pass** (`python3 -m pytest pipeline/tests/`).
+**231/231 tests pass** (`python3 -m pytest pipeline/tests/`).
 
 | Service | State |
 |---|---|
@@ -332,7 +341,7 @@ from their browser (Ctrl+S → "Web Page, HTML Only"). No HTTP requests to
 FestivalNet.com are made by the pipeline — zero ToS violation risk.
 
 **Current index stats:** ~1,900 total events (~356 FestivalNet, ~1,548 Serper).
-157/157 pipeline tests pass.
+231/231 pipeline tests pass.
 
 ---
 
@@ -435,7 +444,7 @@ The frontend shows "FestivalNet" in the SOURCE column. Target-state filtering is
 ```bash
 cd /path/to/home-improvement-search-system
 python3 -m pytest pipeline/tests/
-# Expected: 157 passed
+# Expected: 231 passed
 ```
 
 Tests use the `responses` library and `unittest.mock` to intercept HTTP calls — no live
@@ -524,7 +533,7 @@ npm run security:supplychain
 
 # Run pipeline unit tests (requires pipeline dependencies)
 python3 -m pytest pipeline/tests/
-# Expected: 157 passed
+# Expected: 231 passed
 ```
 
 ### Shell Script QA
@@ -644,6 +653,42 @@ retrieval endpoint — the token may need the `event_read:private` scope or a hi
 access tier. 401/403/404 are handled silently (debug-level log only); the pipeline
 continues normally with zero enriched events.
 
+**Source tracking:** When enrichment succeeds, `_enrich_one` appends a source entry
+with `sourceType: "eventbrite_enrich"` and the API URL to the event's `sources[]`
+list. This allows the frontend to display which events were enriched by the
+Eventbrite API, helping evaluate whether a premium Eventbrite subscription is
+worthwhile.
+
+### `pipeline/fetchers/url_enrich.py`
+
+Post-fetch URL enrichment for events still missing ZIP/county/city data. Runs after
+Eventbrite URL enrichment but **before** `enrich()` so that extracted address data
+flows into the three-tier county resolution pipeline.
+
+**Extraction priority:**
+1. **JSON-LD** (`application/ld+json` script tags) — structured Schema.org address data
+2. **Microdata** (`itemprop` attributes) — Schema.org microdata in HTML
+3. **Heuristic regex** — city/state/ZIP patterns in page text (last resort)
+
+**SSRF protection:** `_is_blocked_url` rejects non-HTTPS schemes, private/reserved IP
+ranges (10.x, 172.16-31.x, 192.168.x, 127.x, 169.254.x, ::1, fc00::/7), and
+internal-looking hostnames (localhost, *.local, *.internal, *.test, *.example,
+*.invalid). DNS resolution is checked before the request is made.
+
+**Field update** (`_apply_enrichment`): only overwrites empty fields so a partial
+web page extraction can't blank fields already populated by higher-priority sources.
+Rebuilds `addr_full` when street address data is available.
+
+**Source tracking:** When enrichment succeeds, `_enrich_one` appends a source entry
+with `sourceType: "url_enrich"` and the page URL to the event's `sources[]` list.
+
+**Candidate selection:** Only events missing ZIP, county, or city are candidates
+(up to `_MAX_EVENTS = 500`). Each event's `primary_url` and up to 2 alternate
+source URLs are tried in order; enrichment stops at the first successful extraction.
+
+Runs up to 5 concurrent requests (ThreadPoolExecutor). Uses a shared `requests.Session`
+with a custom User-Agent header.
+
 ### `pipeline/ingest/`
 
 Structured file ingest pipeline for manual data import. `ingest_file(path)` (in
@@ -697,7 +742,7 @@ falling back to all states. First successful match wins.
 Two-pass deduplication. `exact_dedup()` (pass 1) keys on
 `normalized_name|year|locality` where locality is ZIP or state. On collision, the
 higher-priority source wins (`festivalnet` = `json_ingest` = `csv_ingest` = `eventbrite`
-> `serper_events` > `serper_organic`); ties break on `page_score`. Missing fields (ZIP,
+> `serper_events` = `url_enrich` = `eventbrite_enrich` > `serper_organic`); ties break on `page_score`. Missing fields (ZIP,
 county, city, venue) are merged from the lower-priority duplicate. `fuzzy_merge_results()` (pass 2) buckets events by `year|county`
 — not `startDate|zip` as in the original JS — so the same event with slightly different
 parsed dates or missing ZIPs still lands in the same bucket. Within each bucket, events

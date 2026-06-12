@@ -1,4 +1,5 @@
 """Tests for pipeline.fetchers.eventbrite_enrich."""
+
 import pytest
 import responses as responses_lib
 
@@ -129,7 +130,9 @@ class TestValidateResponse:
     def test_accepts_partial_name_overlap(self):
         # "Frederick" appears in both — one significant token is enough
         event = _make_event(name="Frederick Home Show")
-        raw = _api_response(name="The 45th Annual Frederick County Home and Garden Show 2026")
+        raw = _api_response(
+            name="The 45th Annual Frederick County Home and Garden Show 2026"
+        )
         assert _validate_response(raw, "123456789", event) is True
 
     def test_accepts_when_both_token_sets_empty(self):
@@ -187,7 +190,9 @@ class TestApplyEnrichment:
 
     def test_addr_full_empty_when_no_data(self):
         event = _make_event()
-        _apply_enrichment(event, {"id": "123456789", "status": "live", "name": {"text": "Test"}})
+        _apply_enrichment(
+            event, {"id": "123456789", "status": "live", "name": {"text": "Test"}}
+        )
         assert event.addr_full == ""
 
 
@@ -212,6 +217,11 @@ class TestEnrichFromUrls:
         assert count == 1
         assert event.zip == "21702"
         assert event.city == "Frederick"
+        eb_sources = [
+            s for s in event.sources if s.get("sourceType") == "eventbrite_enrich"
+        ]
+        assert len(eb_sources) == 1
+        assert "123456789" in eb_sources[0]["url"]
 
     def test_skips_non_eventbrite_url(self):
         event = EventItem(
@@ -281,3 +291,13 @@ class TestEnrichFromUrls:
 
     def test_returns_zero_for_empty_list(self):
         assert enrich_from_urls([], "test-key") == 0
+
+    @responses_lib.activate
+    def test_no_source_entry_on_failed_enrichment(self):
+        event = _make_event()
+        _register("123456789", {}, status=404)
+        enrich_from_urls([event], "test-key")
+        eb_sources = [
+            s for s in event.sources if s.get("sourceType") == "eventbrite_enrich"
+        ]
+        assert len(eb_sources) == 0
