@@ -17,6 +17,10 @@ from dateutil import parser as dateutil_parser
 logger = logging.getLogger(__name__)
 
 from .models import EventItem
+from .constants import STATE_NAMES
+
+# Reverse lookup: lowercase state name → abbreviation (e.g. "maryland" → "MD")
+_STATE_NAME_TO_ABBR: dict[str, str] = {v.lower(): k for k, v in STATE_NAMES.items()}
 
 # ── Organic scraper: non-target state guard ───────────────────────────────────
 # Full state names for states outside our 10-state coverage area.
@@ -395,13 +399,31 @@ def normalize_event(
         + (-1 if _PARKS_URL_RE.search(url) else 0)
     )
 
+    # ── State extraction from address ──────────────────────────────────────
+    # If search_state is empty (shouldn't happen for Serper, but can for
+    # other sources), try to extract a target state from the address text.
+    # Try abbreviation first (", MD"), then full name ("Maryland").
+    resolved_state = search_state or ""
+    if not resolved_state and addr_full:
+        for m in _ADDR_STATE_RE.finditer(addr_full):
+            abbr = m.group(1)
+            if abbr in _TARGET_ABBREVIATIONS:
+                resolved_state = abbr
+                break
+        if not resolved_state:
+            addr_lower = addr_full.lower()
+            for name, abbr in _STATE_NAME_TO_ABBR.items():
+                if name in addr_lower:
+                    resolved_state = abbr
+                    break
+
     return EventItem(
         name=name,
         start_date=start_date,
         end_date=end_date,
         venue=venue,
         city="",
-        state=search_state or "",
+        state=resolved_state,
         county="",
         county_full="",
         zip=zip_code,

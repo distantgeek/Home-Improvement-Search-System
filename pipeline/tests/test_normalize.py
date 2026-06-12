@@ -1,4 +1,5 @@
 """Tests for pipeline.normalize — ported from index.html parseDates / inferEventType."""
+
 import pytest
 
 from pipeline.normalize import (
@@ -37,7 +38,9 @@ class TestParseDates:
         assert end == "2026-09-07"
 
     def test_dict_with_when_and_start(self):
-        start, end = parse_dates({"startDate": "Mar 14, 2026", "when": "Mar 14 – 16, 2026"})
+        start, end = parse_dates(
+            {"startDate": "Mar 14, 2026", "when": "Mar 14 – 16, 2026"}
+        )
         assert start == "2026-03-14"
         assert end == "2026-03-16"
 
@@ -71,10 +74,17 @@ class TestInferEventType:
         assert infer_event_type("state fair Maryland 2026", "") == "State Fair"
 
     def test_county_fair(self):
-        assert infer_event_type("Frederick County fair Maryland 2026", "") == "County Fair"
+        assert (
+            infer_event_type("Frederick County fair Maryland 2026", "") == "County Fair"
+        )
 
     def test_fall_festival_keywords(self):
-        for keyword in ("harvest festival", "fall festival", "pumpkin festival", "oktoberfest"):
+        for keyword in (
+            "harvest festival",
+            "fall festival",
+            "pumpkin festival",
+            "oktoberfest",
+        ):
             assert infer_event_type(keyword, "") == "Fall Festival"
 
     def test_food_festival(self):
@@ -145,7 +155,13 @@ class TestOrganicsToEvents:
 
     def test_rejects_short_non_event_titles(self):
         """Pages titled 'SPONSORS' or similar nav labels should be rejected."""
-        for bad_title in ("SPONSORS", "CONTACT US", "ANIMAL EXHIBITS", "INDOOR EXHIBITS", "Home"):
+        for bad_title in (
+            "SPONSORS",
+            "CONTACT US",
+            "ANIMAL EXHIBITS",
+            "INDOOR EXHIBITS",
+            "Home",
+        ):
             organics = [
                 {
                     "title": bad_title,
@@ -239,7 +255,10 @@ class TestNormalizeEvent:
         evt = {
             "title": "Carroll Fair",
             "date": "Aug 1, 2026",
-            "address": ["Carroll County Ag Center", "706 Agricultural Center Dr, Westminster, MD 21157"],
+            "address": [
+                "Carroll County Ag Center",
+                "706 Agricultural Center Dr, Westminster, MD 21157",
+            ],
             "link": "https://example.com",
             "_source_type": "serper_events",
         }
@@ -269,3 +288,39 @@ class TestNormalizeEvent:
         }
         item = normalize_event(evt, "query", "VA")
         assert item.state == "VA"
+
+    def test_state_extracted_from_address_abbreviation(self):
+        evt = {
+            "title": "Delaware State Fair",
+            "date": "Jul 1, 2026",
+            "address": "Harrington, DE 19952",
+            "link": "https://example.com",
+            "_source_type": "serper_organic",
+        }
+        item = normalize_event(evt, "state fair Delaware", None)
+        assert item is not None
+        assert item.state == "DE"
+
+    def test_state_extracted_from_address_full_name(self):
+        evt = {
+            "title": "Maryland Home Show",
+            "date": "Mar 1, 2026",
+            "address": "Maryland State Fairgrounds, Timonium",
+            "link": "https://example.com",
+            "_source_type": "serper_organic",
+        }
+        item = normalize_event(evt, "home show Maryland", None)
+        assert item is not None
+        assert item.state == "MD"
+
+    def test_state_from_search_state_takes_priority_over_address(self):
+        evt = {
+            "title": "Border Event",
+            "date": "Jun 1, 2026",
+            "address": "Wilmington, DE 19801",
+            "link": "https://example.com",
+            "_source_type": "serper_organic",
+        }
+        item = normalize_event(evt, "home show Maryland", "MD")
+        assert item is not None
+        assert item.state == "MD"
