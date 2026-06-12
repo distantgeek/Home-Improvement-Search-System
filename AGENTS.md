@@ -283,6 +283,19 @@ enrich → dedup → store → sync chain.
 
 **Do not start Phase 2 without explicit user instruction.**
 
+### Phase 3 — Roadmap (not yet scheduled)
+
+- **Algorithmic county-name normalization.** The current `normalize_county()` in
+  `build-zip-county.sh` uses a three-step fallback (exact match → suffix-stripped →
+  space-removal) to map Census county names to `counties.json` canonical names. As
+  states are added, the mismatch patterns (Census `"X County"` vs bare `"X"`, Census
+  `"X city"` vs `"X City"`, `"De Witt"` vs `"DeWitt"`, etc.) will recur. Replace the
+  ad-hoc normalization with a proper algorithm: load `counties.json` as the canonical
+  set, build a per-state lookup dict from all known Census naming variants, and
+  validate at build time that every Census name resolves to exactly one canonical
+  entry. This eliminates the class of bugs where `"Baltimore city"` resolves to the
+  wrong county or `"De Witt County"` fails to match `"DeWitt"`.
+
 ### FestivalNet Ingest — COMPLETE ✓
 
 Committed as `e2f29c7` on `main`. Deployed and verified on TrueNAS (`<TRUENAS_IP>`).
