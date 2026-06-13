@@ -305,6 +305,19 @@ enrich → dedup → store → sync chain.
   entry. This eliminates the class of bugs where `"Baltimore city"` resolves to the
   wrong county or `"De Witt County"` fails to match `"DeWitt"`.
 
+- **Playwright sidecar for JS-heavy page enrichment.** The current `url_enrich.py`
+  uses `requests` + `BeautifulSoup` for static HTML extraction, achieving ~60%
+  address enrichment. The remaining ~37% (`fetch_failed`) are events whose URLs
+  return 404s, are JavaScript SPAs that require browser rendering, or serve non-HTML
+  content. A Playwright sidecar container with headless Chromium would render these
+  pages before extraction, potentially recovering another 15–25% of missing addresses.
+  **Infrastructure constraint:** TrueNAS host has 16 GB RAM with ~2.8 GB available
+  and zero swap. Playwright with `--max-workers=1` and a 512 MB memory limit is the
+  maximum safe configuration. The sidecar image (~400–600 MB) would add to the
+  Docker image footprint. Only justified if the data quality gap warrants the
+  resource cost. Must be a separate container (not embedded in the pipeline image)
+  to avoid bloating the pipeline with Chromium dependencies.
+
 ### FestivalNet Ingest — COMPLETE ✓
 
 Committed as `e2f29c7` on `main`. Deployed and verified on TrueNAS (`<TRUENAS_IP>`).
