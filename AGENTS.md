@@ -22,11 +22,10 @@ hand-pruning results by county. That workflow is wrong for the use case and not 
 from Serper.dev (Google Events), normalizes and deduplicates them, stores them in SQLite,
 and indexes them in Meilisearch. A manual structured-file ingest pipeline (`--ingest-file`)
 processes FestivalNet My List HTML exports as the highest-priority data source. Events
-with Eventbrite URLs found via Serper are additionally enriched with structured address
-data from the Eventbrite Event Retrieval API (when the API key has the required scope —
-see Section 8). A static HTML frontend queries Meilisearch directly, letting the
-coordinator filter by served counties and export results to CSV. Events from different
-sources are labeled with a SOURCE column in the results table.
+missing ZIP/county/city data are enriched by scraping their web pages for structured
+address data (JSON-LD, microdata, or heuristic regex). A static HTML frontend queries
+Meilisearch directly, letting the coordinator filter by served counties and export results
+to CSV. Events from different sources are labeled with a SOURCE column in the results table.
 
 **End user:** A non-technical event coordinator. The frontend must work by opening a
 browser. No terminal, no installs, no configuration files to edit.
@@ -69,6 +68,7 @@ Manual file ingest (Tier 1b, optional — --ingest-file flag)
          │  page_score=3, source_type="festivalnet"
          │
          ├──→ normalize_event() / parse_dates() / infer_event_type()
+         ├──→ enrich()  ← early county resolution for ingested events
          │
 Eventbrite Discovery API (Tier 1a, optional — returns 404 on free tier)
          │
@@ -89,6 +89,9 @@ Serper.dev Google Events (Tier 2, required)
                     │   adds sourceType "url_enrich" to sources list
                     ▼
               enrich()  ← three-tier county/ZIP resolution
+                    │   post-enrichment: normalizes all-caps county names to canonical form
+                    ▼
+              date_filter()  ← drop events with start_date before current year
                     │
                     ▼
               exact_dedup()   ← pass 1: name|year|locality key
@@ -185,6 +188,7 @@ home-improvement-search-system/
 │       ├── test_serper.py
 │       ├── test_eventbrite.py
 │       ├── test_ingest.py
+│       ├── test_url_enrich.py
 │       └── fixtures/
 │           ├── serper_events_response.json
 │           ├── serper_organic_response.json
@@ -346,7 +350,7 @@ from their browser (Ctrl+S → "Web Page, HTML Only"). No HTTP requests to
 FestivalNet.com are made by the pipeline — zero ToS violation risk.
 
 **Current index stats:** ~1,900 total events (~356 FestivalNet, ~1,548 Serper).
-231/231 pipeline tests pass.
+198/198 pipeline tests pass.
 
 ---
 
@@ -604,9 +608,9 @@ All variables are read by `pipeline/run.py` via `_load_config()` at startup.
 
 Entry point. `_load_config()` reads env vars and validates `MEILI_URL` scheme and
 `MEILI_MASTER_KEY` placeholder at startup — exits with an error if either fails. The
-`run_pipeline()` function orchestrates one full pass: fetch (Eventbrite, then Serper),
-enrich, date-filter to current year, exact dedup, fuzzy dedup, upsert to SQLite, purge
-expired, sync to Meilisearch. In long-lived mode, APScheduler wraps `run_pipeline()`
+`run_pipeline()` function orchestrates one full pass: ingest (optional), fetch (Eventbrite,
+then Serper), URL enrichment, enrich, date-filter to current year, exact dedup, fuzzy dedup,
+upsert to SQLite, purge expired, sync to Meilisearch. In long-lived mode, APScheduler wraps `run_pipeline()`
 and runs it once immediately on startup, then on the configured cron. `--dry-run` and
 `--once` flags bypass the scheduler.
 
@@ -653,9 +657,14 @@ Rebuilds `addr_full` when street address data is available.
 **Source tracking:** When enrichment succeeds, `_enrich_one` appends a source entry
 with `sourceType: "url_enrich"` and the page URL to the event's `sources[]` list.
 
-**Candidate selection:** Only events missing ZIP, county, or city are candidates
-(up to `_MAX_EVENTS = 500`). Each event's `primary_url` and up to 2 alternate
-source URLs are tried in order; enrichment stops at the first successful extraction.
+**Candidate selection:** All events missing ZIP, county, or city are candidates
+(no cap). Each event's `primary_url` and up to 2 alternate source URLs are tried
+in order; enrichment stops at the first successful extraction.
+
+**Diagnostic logging:** `enrich_from_urls()` logs a breakdown of results by category:
+`enriched` (successfully updated), `no_url` (no URLs to try), `blocked` (SSRF protection),
+`fetch_failed` (HTTP error, timeout, or non-HTML content), `no_address` (page loaded but
+no extractable address), `no_field_update` (address found but all fields already populated).
 
 Runs up to 5 concurrent requests (ThreadPoolExecutor). Uses a shared `requests.Session`
 with a custom User-Agent header.
@@ -706,7 +715,10 @@ from `addr_full` → lookup in `zip-county.json`; (2) county name scanning of
 `addr_full + venue + name` text via the compiled regex; (3) city extraction from
 `addr_full` → lookup in `city-county.json`. Each tier tries the event's known state
 first to resolve ambiguous county names like "Frederick" (exists in MD and VA) before
-falling back to all states. First successful match wins.
+falling back to all states. First successful match wins. After all three tiers, a
+post-enrichment normalization step canonicalizes the county name against `COUNTIES[state]`
+using case-insensitive matching — this fixes all-caps variants like "ALLEGANY" → "Allegany"
+that can come from URL enrichment or Serper organic data.
 
 ### `pipeline/dedup.py`
 
@@ -990,11 +1002,10 @@ inspection.
   `startDate`, `countyFull`, `sourceType`, etc. Do not change the field names in
   `sync.py._row_to_meili_doc()` without updating the frontend to match.
 - **Eventbrite is a best-effort enrichment layer.** The Discovery API (Tier 1) requires
-  enterprise access and currently returns 404 on the free tier. The URL Retrieval API
-  requires a token with retrieval scope — the current free token returns 401. Both are
-  handled silently; the pipeline always continues with Serper.dev as the sole data source.
-  The Eventbrite per-URL enrichment step (`eventbrite_enrich.py`) has been removed —
-  only 4 of 3,589 events had Eventbrite URLs, and the free token cannot enrich any of them.
+  enterprise access and currently returns 404 on the free tier. The per-URL enrichment step
+  (`eventbrite_enrich.py`) has been removed — only 4 of 3,589 events had Eventbrite URLs,
+  and the free token cannot enrich any of them. URL enrichment is now handled by
+  `url_enrich.py`, which scrapes any event page (not just Eventbrite) for address data.
   Do not treat Eventbrite failures as blocking errors.
 - **Do not start Phase 2 (Scrapy) without explicit instruction.** `pipeline/spiders/`
   exists as a placeholder only.
