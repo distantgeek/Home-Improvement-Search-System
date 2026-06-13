@@ -130,10 +130,19 @@ _COUNTY_FAIR_RE = re.compile(r"\b\w+ county fair\b")
 def organics_to_events(organics: list[dict]) -> list[dict]:
     """Convert Serper organic results to event-shaped dicts (ported from JS)."""
     results = []
+    seen_urls: set[str] = set()
     for o in organics:
         link = o.get("link", "")
         if SKIP_DOMAIN_RE.search(link):
             continue
+        if link.lower().endswith(".pdf"):
+            logger.debug("Skipping PDF URL: %s", link[:80])
+            continue
+        if link and link in seen_urls:
+            logger.debug("Skipping duplicate organic URL: %s", link[:80])
+            continue
+        if link:
+            seen_urls.add(link)
         combined = o.get("title", "") + " " + o.get("snippet", "")
         if not ORGANIC_EVENT_RE.search(combined):
             continue

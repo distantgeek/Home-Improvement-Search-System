@@ -199,3 +199,29 @@ class TestEnricher:
         enriched = enricher.enrich(event)
         assert enriched.county == "Frederick"
         assert enriched.county != "Will"
+
+    def test_state_corrected_when_zip_resolves_to_different_state(self, enricher):
+        """ZIP-based state is authoritative over search_state from Serper query.
+
+        E.g. a Kansas City, MO event returned by a KS query should be corrected
+        to MO when the ZIP resolves to Missouri.
+        """
+        event = EventItem(
+            state="KS",
+            addr_full="Kansas City, MO 64105",
+            zip="64105",
+            name="Kansas City Home Show",
+        )
+        enriched = enricher.enrich(event)
+        assert enriched.state == "MO"
+        assert enriched.county != ""
+
+    def test_state_not_overwritten_when_zip_matches(self, enricher):
+        event = EventItem(
+            state="MD",
+            addr_full="Frederick, MD 21701",
+            zip="21701",
+            name="Frederick Home Show",
+        )
+        enriched = enricher.enrich(event)
+        assert enriched.state == "MD"

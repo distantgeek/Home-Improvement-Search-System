@@ -120,10 +120,21 @@ class Enricher:
         addr_full = event.addr_full
 
         # ── Tier 1: ZIP → county lookup ──────────────────────────────────────
+        # ZIP codes uniquely identify states. If the ZIP resolves to a different
+        # state than event.state (which came from the Serper query string), the
+        # ZIP-based state is authoritative — correct it.
         if event.zip and event.zip in self._zip_county:
             entry = self._zip_county[event.zip]
             raw_county = entry["county"]
             state = entry["state"]
+            if event.state and event.state != state:
+                logger.debug(
+                    "State correction via ZIP: %r state %s → %s (zip=%s)",
+                    event.name[:50],
+                    event.state,
+                    state,
+                    event.zip,
+                )
             stripped = _strip_suffix(raw_county)
             event.county = self._canonical_county(stripped, raw_county, state)
             event.county_full = self._canonical_county_full(

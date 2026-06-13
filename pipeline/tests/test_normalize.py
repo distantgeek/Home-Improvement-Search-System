@@ -324,3 +324,31 @@ class TestNormalizeEvent:
         item = normalize_event(evt, "home show Maryland", "MD")
         assert item is not None
         assert item.state == "MD"
+
+    def test_pdf_url_skipped_in_organics(self):
+        organics = [
+            {
+                "title": "2026 County Fair Dates",
+                "snippet": "County fair schedule for Kansas 2026",
+                "link": "https://extension.k-state.edu/about/statewide-locations/2026%20County%20Fair%20Dates.pdf",
+            }
+        ]
+        results = organics_to_events(organics)
+        assert results == []
+
+    def test_duplicate_url_skipped_in_organics(self):
+        url = "https://example.com/same-event-page"
+        organics = [
+            {
+                "title": "County Fair Event A",
+                "snippet": "county fair schedule 2026",
+                "link": url,
+            },
+            {
+                "title": "County Fair Event B",
+                "snippet": "another county fair 2026",
+                "link": url,
+            },
+        ]
+        results = organics_to_events(organics)
+        assert len(results) == 1

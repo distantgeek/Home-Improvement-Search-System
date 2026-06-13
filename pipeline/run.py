@@ -36,6 +36,8 @@ from .fetchers import url_enrich
 from .ingest import ingest_file
 from .store import Store
 from .sync import MeilisearchSync
+from .constants import STATE_ORDER
+from .models import EventItem
 
 logging.basicConfig(
     level=logging.INFO,
@@ -131,6 +133,34 @@ def run_pipeline(config: dict, ingest_path: str | None = None) -> None:
         logger.warning("No events fetched — aborting")
         return
 
+    # ── URL dedup: keep best event per URL ────────────────────────────────────
+    # Aggregator pages (e.g. K-State PDF listing all KS county fairs) and listing
+    # pages (e.g. vafairs.us/fair-dates) can create dozens of events from a single
+    # URL. Keep only the best event per primary_url (highest page_score, then
+    # longest name as tiebreaker). Events with empty URLs are not deduped here.
+    pre_url_dedup = len(events)
+    by_url: dict[str, EventItem] = {}
+    no_url: list[EventItem] = []
+    for event in events:
+        url = event.primary_url
+        if not url:
+            no_url.append(event)
+            continue
+        if url not in by_url:
+            by_url[url] = event
+        else:
+            existing = by_url[url]
+            new_p = event.page_score
+            ex_p = existing.page_score
+            if new_p > ex_p or (new_p == ex_p and len(event.name) > len(existing.name)):
+                by_url[url] = event
+    events = list(by_url.values()) + no_url
+    url_dedup_dropped = pre_url_dedup - len(events)
+    if url_dedup_dropped:
+        logger.info(
+            "URL dedup: dropped %d events (same URL, kept best)", url_dedup_dropped
+        )
+
     # ── URL enrichment (scrape event pages for address data) ──────────────────
     # For events still missing ZIP/county/city, fetch their web pages and extract
     # structured address data from JSON-LD, microdata, or heuristic regex.
@@ -150,6 +180,17 @@ def run_pipeline(config: dict, ingest_path: str | None = None) -> None:
         e for e in events if not e.start_date or e.start_date >= f"{year_prefix}-01-01"
     ]
     logger.info("Date filter: kept %d of %d", len(events), pre_filter)
+
+    # Drop events with no state or non-target state after enrichment.
+    # Events with empty state contaminate all state filters; events in
+    # non-target states (e.g. NY, FL) are outside the coverage area.
+    pre_state = len(events)
+    events = [e for e in events if e.state in STATE_ORDER]
+    dropped_state = pre_state - len(events)
+    if dropped_state:
+        logger.info(
+            "State filter: dropped %d events (no state or non-target)", dropped_state
+        )
 
     # ── Dedup ────────────────────────────────────────────────────────────────
     events = exact_dedup(events)
