@@ -19,6 +19,7 @@ from .constants import STATE_ORDER
 from .dedup import exact_dedup, fuzzy_merge_results
 from .enrich import Enricher
 from .models import EventItem
+from .normalize import _NON_TARGET_STATES, _ADDR_STATE_RE, _TARGET_ABBREVIATIONS
 from .store import Store
 from .sync import MeilisearchSync
 
@@ -118,6 +119,35 @@ def main():
     state_dropped = pre_state - len(events)
     if state_dropped:
         logger.info("State filter: dropped %d events", state_dropped)
+
+    # ── Non-target state content filter ──────────────────────────────────────
+    # Drop events whose title, URL, or address mentions a non-target state.
+    # This catches events that were fetched by a KS/MO query but are actually
+    # in Nebraska, Iowa, Colorado, etc. — the same check normalize_event now
+    # does at fetch time, applied retroactively to existing data.
+    pre_content = len(events)
+    filtered = []
+    for event in events:
+        combined_lower = f"{event.name} {event.addr_full} {event.primary_url}".lower()
+        rejected = False
+        for nt_name in _NON_TARGET_STATES:
+            if nt_name.lower() in combined_lower:
+                rejected = True
+                break
+        if not rejected:
+            combined_orig = f"{event.name} {event.addr_full} {event.primary_url}"
+            for m in _ADDR_STATE_RE.finditer(combined_orig):
+                if m.group(1) not in _TARGET_ABBREVIATIONS:
+                    rejected = True
+                    break
+        if not rejected:
+            filtered.append(event)
+    events = filtered
+    content_dropped = pre_content - len(events)
+    if content_dropped:
+        logger.info(
+            "Non-target state content filter: dropped %d events", content_dropped
+        )
 
     # ── Re-dedup ──────────────────────────────────────────────────────────────
     events = exact_dedup(events)
