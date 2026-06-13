@@ -19,7 +19,15 @@ from .constants import STATE_ORDER
 from .dedup import exact_dedup, fuzzy_merge_results
 from .enrich import Enricher
 from .models import EventItem
-from .normalize import _NON_TARGET_STATES, _ADDR_STATE_RE, _TARGET_ABBREVIATIONS
+from .normalize import (
+    _NON_TARGET_STATES,
+    _ADDR_STATE_RE,
+    _TARGET_ABBREVIATIONS,
+    _NAME_DATE_RE,
+    _YEAR_IN_RANGE_RE,
+    parse_dates,
+)
+import re
 from .store import Store
 from .sync import MeilisearchSync
 
@@ -84,6 +92,33 @@ def main():
     for row in rows:
         d = dict(zip(columns, row))
         events.append(_row_to_event(d))
+
+    # ── Date extraction from event names ──────────────────────────────────────
+    # Re-run the name-based date extraction for events with empty start_date.
+    # This was added after the original fetch, so existing events in the DB
+    # may have a date like "Oct 10 & 11 2026" in their name but no start_date.
+    pre_date = len(events)
+    date_filled = 0
+    for event in events:
+        if event.start_date:
+            continue
+        m = _NAME_DATE_RE.search(event.name)
+        if m:
+            date_str = re.sub(r"(\d)(st|nd|rd|th)\b", r"\1", m.group(0))
+            date_str = date_str.replace("&", "-")
+            start_date, end_date = parse_dates(date_str)
+            if start_date:
+                event.start_date = start_date
+                event.end_date = end_date or start_date
+                date_filled += 1
+                continue
+        ym = _YEAR_IN_RANGE_RE.search(event.name)
+        if ym:
+            event.start_date = f"{ym.group(1)}-01-01"
+            event.end_date = event.start_date
+            date_filled += 1
+    if date_filled:
+        logger.info("Extracted dates from event names for %d events", date_filled)
 
     # ── Re-enrich (state correction via ZIP) ──────────────────────────────────
     logger.info("Re-enriching %d events…", len(events))
