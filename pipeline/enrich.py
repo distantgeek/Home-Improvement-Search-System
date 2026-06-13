@@ -188,6 +188,21 @@ class Enricher:
         if not event.city and addr_full:
             event.city = self._extract_city(addr_full, event.venue)
 
+        # ── Post-enrichment county normalization ──────────────────────────────
+        # URL enrichment or Serper organic data can set county to an all-caps
+        # variant (e.g. "ALLEGANY" instead of "Allegany"). Normalize against
+        # the canonical list to ensure consistent casing.
+        if event.county and event.state:
+            for c in COUNTIES.get(event.state, []):
+                if c.lower() == event.county.lower() and c != event.county:
+                    event.county = c
+                    if not event.county_full:
+                        if re.search(r"\b(?:County|City|Borough)\b", c, re.IGNORECASE):
+                            event.county_full = c
+                        else:
+                            event.county_full = c + " County"
+                    break
+
         if not event.county:
             logger.debug(
                 "County not resolved for %r (zip=%r addr=%r)",

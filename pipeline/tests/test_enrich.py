@@ -177,4 +177,25 @@ class TestEnricher:
         )
         enriched = enricher.enrich(event)
         assert enriched.county in ("New Castle", "")
+
+    def test_all_caps_county_normalized(self, enricher):
+        event = EventItem(state="MD", county="ALLEGANY", addr_full="Allegany County MD")
+        enriched = enricher.enrich(event)
+        assert enriched.county == "Allegany"
+        assert enriched.county_full == "Allegany County"
+
+    def test_all_caps_county_normalized_armstrong(self, enricher):
+        event = EventItem(
+            state="PA", county="ARMSTRONG", addr_full="Armstrong County PA"
+        )
+        enriched = enricher.enrich(event)
+        assert enriched.county == "Armstrong"
+        assert enriched.county_full == "Armstrong County"
+
+    def test_title_case_county_unchanged(self, enricher):
+        event = EventItem(
+            state="MD", county="Frederick", addr_full="Frederick, MD 21702"
+        )
+        enriched = enricher.enrich(event)
+        assert enriched.county == "Frederick"
         assert enriched.county != "Will"
