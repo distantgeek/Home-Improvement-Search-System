@@ -73,7 +73,10 @@ def main():
     logger.info("URL enrich result: %d events enriched", enriched_count)
 
     for e in events:
-        enricher.enrich(e)
+        try:
+            enricher.enrich(e)
+        except KeyError:
+            logger.warning("Skipping enrich for event with unknown state: %s", e.state)
 
     logger.info("Upserting enriched events...")
     store.upsert_events(events)
