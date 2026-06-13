@@ -1,4 +1,5 @@
 """Meilisearch index configuration and sync from SQLite store."""
+
 from __future__ import annotations
 
 import json
@@ -40,7 +41,8 @@ _INDEX_SETTINGS = {
         "minWordSizeForTypos": {"oneTypo": 5, "twoTypos": 9},
         "disableOnAttributes": ["zip", "startDate", "endDate"],
     },
-    "faceting": {"maxValuesPerFacet": 100},
+    "faceting": {"maxValuesPerFacet": 500},
+    "pagination": {"maxTotalHits": 10000},
     "rankingRules": [
         "words",
         "typo",
@@ -73,7 +75,10 @@ class MeilisearchSync:
             logger.info("Created Meilisearch index '%s'", INDEX_UID)
         except meilisearch.errors.MeilisearchApiError as exc:
             code = getattr(exc, "code", "") or ""
-            if "already_exists" not in code.lower() and "already exists" not in str(exc).lower():
+            if (
+                "already_exists" not in code.lower()
+                and "already exists" not in str(exc).lower()
+            ):
                 raise
             logger.debug("Index '%s' already exists", INDEX_UID)
         except meilisearch.errors.MeilisearchTimeoutError:
@@ -115,7 +120,9 @@ class MeilisearchSync:
                     logger.error(
                         "Meilisearch task failed for batch %d/%d (status=%s) — "
                         "skipping mark_synced, will retry next run",
-                        batch_num, total_batches, task_status,
+                        batch_num,
+                        total_batches,
+                        task_status,
                     )
                     continue
                 store.mark_synced(batch_ids)
@@ -136,7 +143,10 @@ class MeilisearchSync:
                 logger.error(
                     "Meilisearch API error on batch %d/%d (%d docs): %s — "
                     "skipping, will retry next run",
-                    batch_num, total_batches, len(batch_docs), exc,
+                    batch_num,
+                    total_batches,
+                    len(batch_docs),
+                    exc,
                 )
 
         logger.info("Synced %d of %d events to Meilisearch", synced_count, len(docs))

@@ -1220,7 +1220,7 @@ async function searchMeilisearch(state, eventTypes) {
   }
   const body = {
     q: '',
-    limit: 1000,
+    limit: 5000,
     sort: ['startDate:asc'],
     facets: ['county', 'eventType', 'state', 'sourceType'],
     attributesToRetrieve: ['*'],
