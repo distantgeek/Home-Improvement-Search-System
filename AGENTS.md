@@ -216,12 +216,12 @@ home-improvement-search-system/
 ### Phase 0 — COMPLETE ✓
 
 All four services deployed and healthy on TrueNAS (`<TRUENAS_IP>`).
-**198/198 tests pass** (`python3 -m pytest pipeline/tests/`).
+**241/241 tests pass** (`python3 -m pytest pipeline/tests/`).
 
 | Service | State |
 |---|---|
 | `hiss` (frontend, port 8888) | Up — serving `index.html` via nginx:alpine |
-| `hiss-meilisearch` (port 7700) | Up + healthy — 1090+ events indexed |
+| `hiss-meilisearch` (port 7700) | Up + healthy — 2,765 events indexed |
 | `hiss-pipeline` | Up — last ran successfully, next run Sunday 3am |
 | `hiss-datasette` (internal, port 8001) | Up — immutable mode, SSH tunnel for access |
 
@@ -349,8 +349,8 @@ pipeline reads *locally saved HTML files* that the coordinator manually exports
 from their browser (Ctrl+S → "Web Page, HTML Only"). No HTTP requests to
 FestivalNet.com are made by the pipeline — zero ToS violation risk.
 
-**Current index stats:** ~1,900 total events (~356 FestivalNet, ~1,548 Serper).
-198/198 pipeline tests pass.
+**Current index stats:** ~2,765 total events (~356 FestivalNet, ~2,409 Serper).
+241/241 pipeline tests pass.
 
 ---
 
@@ -706,6 +706,16 @@ filters Serper organic results by `ORGANIC_EVENT_RE`, extracts attendance, email
 contact, and cleans up title suffixes. `normalize_event()` produces an `EventItem` with
 `county`/`city` left blank for `enrich()` to fill.
 
+**Date extraction from event names** (`_NAME_DATE_RE`, `_YEAR_IN_RANGE_RE`):
+When a Serper response has no `date` field but the event name contains a date,
+`normalize_event()` attempts to extract it via three fallbacks: (1) `_NAME_DATE_RE`
+matches explicit dates like `"Sept. 24, 2026"`, `"October 10th & 11th 2026"`,
+and `"June 2026"` patterns — ordinal suffixes are stripped and `&` is replaced
+with `-` before `parse_dates()` is called; (2) `_YEAR_IN_RANGE_RE` extracts just
+the year and sets `start_date` to `YYYY-01-01`; (3) if none match, `start_date`
+remains empty. Months with the `"Sept"` abbreviation are supported via
+`Sep(?:t|tember)?`. On the current dataset this filled 558 previously-empty dates.
+
 ### `pipeline/enrich.py`
 
 `Enricher` loads `zip-county.json` and `city-county.json` once at init and builds a
@@ -738,7 +748,7 @@ no county are skipped from fuzzy comparison to prevent spurious cross-state merg
 `Store` wraps a SQLite connection in WAL mode. `upsert_events()` uses
 `INSERT ... ON CONFLICT(event_id) DO UPDATE` — every upsert resets `synced=0` so the
 sync step picks up refreshed data. `purge_expired()` deletes rows where `end_date` is
-more than 30 days in the past. `get_unsynced()` returns up to 1000 `synced=0` rows as
+more than 30 days in the past. `get_unsynced()` returns up to 10,000 `synced=0` rows as
 dicts. `mark_synced()` sets `synced=1` for a list of `event_id`s. All writes use
 `executemany`; errors roll back and raise `RuntimeError`. The `contact` column is stored
 here but intentionally excluded from Meilisearch documents (see `sync.py`).
