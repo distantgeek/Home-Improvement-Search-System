@@ -1,4 +1,5 @@
 """SQLite canonical data store."""
+
 from __future__ import annotations
 
 import logging
@@ -126,7 +127,7 @@ class Store:
             logger.info("Purged %d expired events (end_date < %s)", count, cutoff)
         return count
 
-    def get_unsynced(self, limit: int = 1000) -> list[dict]:
+    def get_unsynced(self, limit: int = 10000) -> list[dict]:
         cur = self._conn.execute(
             "SELECT * FROM events WHERE synced = 0 LIMIT ?", (limit,)
         )
