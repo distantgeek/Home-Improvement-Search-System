@@ -81,12 +81,6 @@ Serper.dev Google Events (Tier 2, required)
          └──→ normalize_event()
                     │
                     ▼
-              eb_enrich.enrich_from_urls()  ← Eventbrite URL enrichment:
-                    │   events whose primary_url/sources point to Eventbrite
-                    │   get structured venue/city/state/ZIP from /v3/events/{id}/
-                    │   (requires Eventbrite key with retrieval scope; skipped on 401/403/404)
-                    │   adds sourceType "eventbrite_enrich" to sources list
-                    ▼
               url_enrich.enrich_from_urls()  ← web page enrichment:
                     │   for events still missing ZIP/county/city, fetches primary_url
                     │   and alternate sources; extracts address from JSON-LD (priority 1),
@@ -98,7 +92,7 @@ Serper.dev Google Events (Tier 2, required)
                     │
                     ▼
               exact_dedup()   ← pass 1: name|year|locality key
-                    │   priority: festivalnet=0 > eventbrite=0 > serper_events=1 > url_enrich=1 > eventbrite_enrich=1 > serper_organic=2
+                    │   priority: festivalnet=0 > eventbrite=0 > serper_events=1 > url_enrich=1 > serper_organic=2
                     │   ties break on higher page_score
                     ▼
               fuzzy_merge_results()  ← pass 2: Jaccard ≥ 0.60 in year|county buckets
@@ -173,7 +167,6 @@ home-improvement-search-system/
 │   │   ├── __init__.py
 │   │   ├── serper.py                # Tier 2: Serper.dev + organics fallback
 │   │   ├── eventbrite.py            # Tier 1: Eventbrite Discovery API (optional, enterprise-only)
-│   │   ├── eventbrite_enrich.py     # URL enrichment: /v3/events/{id}/ for Eventbrite-linked events
 │   │   └── url_enrich.py           # URL enrichment: scrape event pages for address data (JSON-LD, microdata, heuristic)
 │   ├── ingest/
 │   │   ├── __init__.py              # File dispatcher — format auto-detection
@@ -191,7 +184,6 @@ home-improvement-search-system/
 │       ├── test_sync.py
 │       ├── test_serper.py
 │       ├── test_eventbrite.py
-│       ├── test_eventbrite_enrich.py
 │       ├── test_ingest.py
 │       └── fixtures/
 │           ├── serper_events_response.json
@@ -220,7 +212,7 @@ home-improvement-search-system/
 ### Phase 0 — COMPLETE ✓
 
 All four services deployed and healthy on TrueNAS (`<TRUENAS_IP>`).
-**231/231 tests pass** (`python3 -m pytest pipeline/tests/`).
+**198/198 tests pass** (`python3 -m pytest pipeline/tests/`).
 
 | Service | State |
 |---|---|
@@ -230,7 +222,7 @@ All four services deployed and healthy on TrueNAS (`<TRUENAS_IP>`).
 | `hiss-datasette` (internal, port 8001) | Up — immutable mode, SSH tunnel for access |
 
 Completed work:
-- `pipeline/` package — all modules implemented, including `eventbrite_enrich.py`
+- `pipeline/` package — all modules implemented, including `url_enrich.py`
 - `Dockerfile.pipeline` — python:3.12-slim, non-root `pipeline` user (UID 1000)
 - `docker-compose.yml` — four services, internal network, log rotation, healthcheck
 - `.env.example` — template with all required variables
@@ -457,7 +449,7 @@ The frontend shows "FestivalNet" in the SOURCE column. Target-state filtering is
 ```bash
 cd /path/to/home-improvement-search-system
 python3 -m pytest pipeline/tests/
-# Expected: 231 passed
+# Expected: 198 passed
 ```
 
 Tests use the `responses` library and `unittest.mock` to intercept HTTP calls — no live
@@ -546,7 +538,7 @@ npm run security:supplychain
 
 # Run pipeline unit tests (requires pipeline dependencies)
 python3 -m pytest pipeline/tests/
-# Expected: 231 passed
+# Expected: 198 passed
 ```
 
 ### Shell Script QA
@@ -638,45 +630,11 @@ without aborting — the Discovery API requires enterprise access and is treated
 optional (currently returns 404 on the free tier; Tier 2 runs regardless). All Eventbrite
 events get `page_score=2` (highest priority in dedup).
 
-### `pipeline/fetchers/eventbrite_enrich.py`
-
-Post-fetch URL enrichment. Runs after all fetchers complete but **before** `enrich()` so
-that ZIP/venue data from Eventbrite flows into the county resolution pipeline. Scans each
-event's `primary_url` and `sources[]` for valid Eventbrite URLs, validates the URL before
-calling the API, then validates the response before applying changes.
-
-**Pre-API URL validation** (`extract_eventbrite_id`): rejects non-`https` schemes,
-non-`eventbrite.com`/`www.eventbrite.com` hosts (prevents lookalike injection), paths
-that don't match `/e/<slug>-<id>`, and IDs outside 5–20 digits.
-
-**Response validation** (`_validate_response`): rejects ID mismatches (response ID must
-equal requested ID), cancelled events, and responses with no name-token overlap (generic
-names with zero tokens on both sides are accepted — ID match is sufficient in that case).
-
-**Field update** (`_apply_enrichment`): only overwrites non-empty values so a partial
-Eventbrite response can't blank fields already populated from Serper. Rebuilds `addr_full`
-so `Enricher.enrich()` has the best possible input for the three-tier county resolution.
-
-Runs up to 5 concurrent requests (ThreadPoolExecutor). Each worker creates its own
-`requests.Session` for thread safety. Deduplicates by Eventbrite event ID so the same
-event is never fetched twice even if it appears in multiple Serper results.
-
-**Current limitation:** The free Eventbrite OAuth token returns HTTP 401 for the
-retrieval endpoint — the token may need the `event_read:private` scope or a higher
-access tier. 401/403/404 are handled silently (debug-level log only); the pipeline
-continues normally with zero enriched events.
-
-**Source tracking:** When enrichment succeeds, `_enrich_one` appends a source entry
-with `sourceType: "eventbrite_enrich"` and the API URL to the event's `sources[]`
-list. This allows the frontend to display which events were enriched by the
-Eventbrite API, helping evaluate whether a premium Eventbrite subscription is
-worthwhile.
-
 ### `pipeline/fetchers/url_enrich.py`
 
-Post-fetch URL enrichment for events still missing ZIP/county/city data. Runs after
-Eventbrite URL enrichment but **before** `enrich()` so that extracted address data
-flows into the three-tier county resolution pipeline.
+Post-fetch URL enrichment for events still missing ZIP/county/city data. Runs
+**before** `enrich()` so that extracted address data flows into the three-tier
+county resolution pipeline.
 
 **Extraction priority:**
 1. **JSON-LD** (`application/ld+json` script tags) — structured Schema.org address data
@@ -755,7 +713,7 @@ falling back to all states. First successful match wins.
 Two-pass deduplication. `exact_dedup()` (pass 1) keys on
 `normalized_name|year|locality` where locality is ZIP or state. On collision, the
 higher-priority source wins (`festivalnet` = `json_ingest` = `csv_ingest` = `eventbrite`
-> `serper_events` = `url_enrich` = `eventbrite_enrich` > `serper_organic`); ties break on `page_score`. Missing fields (ZIP,
+> `serper_events` = `url_enrich` > `serper_organic`); ties break on `page_score`. Missing fields (ZIP,
 county, city, venue) are merged from the lower-priority duplicate. `fuzzy_merge_results()` (pass 2) buckets events by `year|county`
 — not `startDate|zip` as in the original JS — so the same event with slightly different
 parsed dates or missing ZIPs still lands in the same bucket. Within each bucket, events
@@ -1033,9 +991,11 @@ inspection.
   `sync.py._row_to_meili_doc()` without updating the frontend to match.
 - **Eventbrite is a best-effort enrichment layer.** The Discovery API (Tier 1) requires
   enterprise access and currently returns 404 on the free tier. The URL Retrieval API
-  (used by `eventbrite_enrich.py`) requires a token with retrieval scope — the current
-  free token returns 401. Both are handled silently; the pipeline always continues with
-  Serper.dev as the sole data source. Do not treat Eventbrite failures as blocking errors.
+  requires a token with retrieval scope — the current free token returns 401. Both are
+  handled silently; the pipeline always continues with Serper.dev as the sole data source.
+  The Eventbrite per-URL enrichment step (`eventbrite_enrich.py`) has been removed —
+  only 4 of 3,589 events had Eventbrite URLs, and the free token cannot enrich any of them.
+  Do not treat Eventbrite failures as blocking errors.
 - **Do not start Phase 2 (Scrapy) without explicit instruction.** `pipeline/spiders/`
   exists as a placeholder only.
 - **FestivalNet file ingest is manual, not automated.** FestivalNet.com ToS prohibits

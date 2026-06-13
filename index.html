@@ -1311,9 +1311,9 @@ async function runSearch() {
 
     // Source breakdown pills
     const counts      = {};
-    const labels      = { festivalnet: 'FestivalNet', serper_events: 'Google Events', serper_organic: 'Google Organic', eventbrite: 'Eventbrite', eventbrite_enrich: 'Eventbrite API', url_enrich: 'Web Page' };
-    const cssClassMap = { festivalnet: 'festivalnet', serper_events: 'google', serper_organic: 'google', eventbrite: 'eventbrite', eventbrite_enrich: 'eventbrite', url_enrich: 'url_enrich' };
-    const VALID_SOURCES = new Set(['festivalnet', 'serper_events', 'serper_organic', 'eventbrite', 'eventbrite_enrich', 'url_enrich']);
+    const labels      = { festivalnet: 'FestivalNet', serper_events: 'Google Events', serper_organic: 'Google Organic', eventbrite: 'Eventbrite', url_enrich: 'Web Page' };
+    const cssClassMap = { festivalnet: 'festivalnet', serper_events: 'google', serper_organic: 'google', eventbrite: 'eventbrite', url_enrich: 'url_enrich' };
+    const VALID_SOURCES = new Set(['festivalnet', 'serper_events', 'serper_organic', 'eventbrite', 'url_enrich']);
     currentResults.forEach(r => {
       if (VALID_SOURCES.has(r.sourceType)) counts[r.sourceType] = (counts[r.sourceType] || 0) + 1;
     });
@@ -1427,7 +1427,6 @@ function sortResults(results) {
 function srcLabelShort(st) {
   if (st === 'festivalnet') return 'FestivalNet';
   if (st === 'eventbrite') return 'Eventbrite';
-  if (st === 'eventbrite_enrich') return 'EB API';
   if (st === 'url_enrich') return 'Web Page';
   if (st === 'serper_organic') return 'Google';
   if (st === 'serper_events') return 'Google';
@@ -1491,7 +1490,7 @@ function renderResults(results) {
     if (!hasAlts) return row;
 
     const altLinks = e.altUrls.map(u => {
-      const srcLabel = u.sourceType === 'festivalnet' ? 'FestivalNet' : u.sourceType === 'eventbrite' ? 'Eventbrite' : u.sourceType === 'eventbrite_enrich' ? 'EB API' : u.sourceType === 'url_enrich' ? 'Web Page' : u.sourceType === 'serper_organic' ? 'Google Organic' : 'Google Events';
+      const srcLabel = u.sourceType === 'festivalnet' ? 'FestivalNet' : u.sourceType === 'eventbrite' ? 'Eventbrite' : u.sourceType === 'url_enrich' ? 'Web Page' : u.sourceType === 'serper_organic' ? 'Google Organic' : 'Google Events';
       return `<a href="${isSafeUrl(u.url) ? escHtml(u.url) : '#'}" target="_blank">${escHtml(u.url)}<span class="alt-url-source">[${srcLabel}]</span></a>`;
     }).join('');
 

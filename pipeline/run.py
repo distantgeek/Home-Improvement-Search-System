@@ -31,7 +31,6 @@ from pathlib import Path
 from .dedup import exact_dedup, fuzzy_merge_results
 from .enrich import Enricher
 from .fetchers import eventbrite as eb_fetcher
-from .fetchers import eventbrite_enrich as eb_enrich
 from .fetchers import serper as serper_fetcher
 from .fetchers import url_enrich
 from .ingest import ingest_file
@@ -127,14 +126,6 @@ def run_pipeline(config: dict, ingest_path: str | None = None) -> None:
     if not events and not dry_run:
         logger.warning("No events fetched — aborting")
         return
-
-    # ── Eventbrite URL enrichment ─────────────────────────────────────────────
-    # Fetch structured venue/address/ZIP for events whose URLs point to Eventbrite.
-    # Runs before county resolution so richer address data flows into the enricher.
-    if config["eventbrite_api_key"] and not dry_run:
-        logger.info("Enriching Eventbrite-linked events with structured address data…")
-        eb_updated = eb_enrich.enrich_from_urls(events, config["eventbrite_api_key"])
-        logger.info("Eventbrite address enrichment: updated %d events", eb_updated)
 
     # ── URL enrichment (scrape event pages for address data) ──────────────────
     # For events still missing ZIP/county/city, fetch their web pages and extract
