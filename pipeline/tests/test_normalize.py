@@ -442,3 +442,93 @@ class TestNonTargetStateGuard:
             "_source_type": "serper_events",
         }
         assert normalize_event(evt, "county fair Kansas", "KS") is None
+
+
+class TestDateFallback:
+    """Test that dates are extracted from event names when the date field is empty."""
+
+    def test_date_from_name_month_day_year(self):
+        evt = {
+            "title": "Calvert County Fair Returns Sept. 24, 2026",
+            "date": "",
+            "address": "",
+            "link": "https://example.com",
+            "_source_type": "serper_organic",
+        }
+        item = normalize_event(evt, "county fair Maryland", "MD")
+        assert item is not None
+        assert item.start_date == "2026-09-24"
+
+    def test_date_from_name_month_year(self):
+        evt = {
+            "title": "ANNE ARUNDEL COUNTY FAIR - Updated June 2026",
+            "date": "",
+            "address": "",
+            "link": "https://example.com",
+            "_source_type": "serper_organic",
+        }
+        item = normalize_event(evt, "county fair Maryland", "MD")
+        assert item is not None
+        assert item.start_date == "2026-06-01"
+
+    def test_date_from_name_year_only(self):
+        evt = {
+            "title": "Worcester County Fair 2026",
+            "date": "",
+            "address": "",
+            "link": "https://example.com",
+            "_source_type": "serper_organic",
+        }
+        item = normalize_event(evt, "county fair Maryland", "MD")
+        assert item is not None
+        assert item.start_date == "2026-01-01"
+
+    def test_date_from_name_ordinal_suffix(self):
+        evt = {
+            "title": "Great Big Home Show - October 10th & 11th 2026",
+            "date": "",
+            "address": "",
+            "link": "https://example.com",
+            "_source_type": "serper_organic",
+        }
+        item = normalize_event(evt, "home show Maryland", "MD")
+        assert item is not None
+        assert item.start_date == "2026-10-10"
+
+    def test_date_from_name_day_month_year(self):
+        evt = {
+            "title": "Suburban Maryland Home Show 2026 - 10th Jan, 2026",
+            "date": "",
+            "address": "",
+            "link": "https://example.com",
+            "_source_type": "serper_organic",
+        }
+        item = normalize_event(evt, "home show Maryland", "MD")
+        assert item is not None
+        assert item.start_date == "2026-01-10"
+
+    def test_date_field_takes_priority_over_name(self):
+        """If the date field has a value, it should be used, not the name."""
+        evt = {
+            "title": "Worcester County Fair 2026",
+            "date": "Aug 15, 2026",
+            "address": "",
+            "link": "https://example.com",
+            "_source_type": "serper_events",
+        }
+        item = normalize_event(evt, "county fair Maryland", "MD")
+        assert item is not None
+        assert item.start_date == "2026-08-15"
+
+    def test_no_date_at_all(self):
+        """Events with no date in either field or name get empty start_date."""
+        evt = {
+            "title": "Frederick Home & Garden Expo",
+            "date": "",
+            "address": "",
+            "link": "https://example.com",
+            "_source_type": "serper_organic",
+        }
+        item = normalize_event(evt, "home show Maryland", "MD")
+        assert item is not None
+        assert item.start_date == ""

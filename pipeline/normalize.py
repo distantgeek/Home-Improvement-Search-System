@@ -98,9 +98,33 @@ ORGANIC_EVENT_RE = re.compile(
 
 ORGANIC_DATE_RE = re.compile(
     r"\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May"
-    r"|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?"
+    r"|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t|tember)?"
     r"|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?"
     r"\s+\d{1,2}(?:\s*[-–]\s*\d{1,2})?,?\s*202\d",
+    re.IGNORECASE,
+)
+_NAME_DATE_RE = re.compile(
+    r"(?:"
+    # "Month Day[-Day], Year" e.g. "Sept. 24, 2026" or "October 10-11, 2026"
+    # Also handles ordinal suffixes: "October 10th & 11th 2026"
+    r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May"
+    r"|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t|tember)?"
+    r"|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?"
+    r"\s+\d{1,2}(?:st|nd|rd|th)?\s*(?:[-–&]\s*\d{1,2}(?:st|nd|rd|th)?)?,?\s*202\d"
+    r"|"
+    # "Month Year" e.g. "June 2026"
+    r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May"
+    r"|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t|tember)?"
+    r"|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?"
+    r"\s+202\d"
+    r"|"
+    # "Day Month Year" e.g. "10th Jan, 2026"
+    r"\d{1,2}(?:st|nd|rd|th)?\s+"
+    r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May"
+    r"|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?"
+    r"|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?"
+    r",?\s*202\d"
+    r")",
     re.IGNORECASE,
 )
 
@@ -360,6 +384,25 @@ def normalize_event(
         return None
 
     start_date, end_date = parse_dates(evt.get("date"))
+
+    # ── Fallback: try to extract date from the event name ────────────────────
+    # Many Serper organic results have no date field but contain dates in the
+    # title (e.g. "Calvert County Fair Returns Sept. 24", "2026 Home Show").
+    if not start_date:
+        m = _NAME_DATE_RE.search(name)
+        if m:
+            date_str = m.group(0)
+            # Strip ordinal suffixes that dateutil can't handle ("10th" → "10")
+            date_str = re.sub(r"(\d)(st|nd|rd|th)\b", r"\1", date_str)
+            # Replace "&" with "-" for range parsing ("Oct 10 & 11" → "Oct 10-11")
+            date_str = date_str.replace("&", "-")
+            start_date, end_date = parse_dates(date_str)
+    # Final fallback: if still no date, try extracting just the year
+    if not start_date:
+        ym = _YEAR_IN_RANGE_RE.search(name)
+        if ym:
+            start_date = f"{ym.group(1)}-01-01"
+            end_date = start_date
 
     addr_raw = evt.get("address", "")
     if isinstance(addr_raw, list):
