@@ -78,6 +78,10 @@ def _load_config() -> dict:
                 "MEILI_MASTER_KEY appears to be the placeholder value — set a real key"
             )
             sys.exit(1)
+    sidecar_url = os.environ.get("SIDECAR_URL", "")
+    if sidecar_url and not sidecar_url.startswith(("http://", "https://")):
+        logger.error("SIDECAR_URL must start with http:// or https://: %r", sidecar_url)
+        sys.exit(1)
     return config
 
 

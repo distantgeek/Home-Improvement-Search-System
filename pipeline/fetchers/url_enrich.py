@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+import os
 import re
 import socket
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -31,8 +32,13 @@ logger = logging.getLogger(__name__)
 
 _MAX_WORKERS = 5
 _REQUEST_TIMEOUT = 12
+_REQUEST_TIMEOUT_RETRY = 20
+_REQUEST_TIMEOUT_EVENT_RETRY = 25
 _DOMAIN_DELAY_SECONDS = 2.0
 _MAX_URLS_PER_EVENT = 3
+_SIDECAR_URL = os.environ.get("SIDECAR_URL", "")
+_SIDECAR_TIMEOUT = int(os.environ.get("SIDECAR_TIMEOUT", "30") or "30")
+_SIDECAR_API_KEY = os.environ.get("SIDECAR_API_KEY", "")
 
 _PRIVATE_NETWORKS = [
     ipaddress.ip_network("10.0.0.0/8"),
@@ -104,7 +110,9 @@ def _is_blocked_url(url: str) -> bool:
         return True
     if parsed.scheme != "https":
         return True
-    host = parsed.netloc.split(":")[0].lower()
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return True
     if host in ("localhost", "127.0.0.1", "::1"):
         return True
     if any(host.endswith(s) for s in _BLOCKED_HOST_SUFFIXES):
@@ -258,51 +266,123 @@ def _apply_enrichment(event: EventItem, fields: dict) -> bool:
     return updated
 
 
-def _fetch_and_extract(url: str) -> dict | None:
-    if _is_blocked_url(url):
-        logger.debug("URL blocked (SSRF/privacy): %s", url[:80])
-        return None
-    try:
-        resp = _SESSION.get(url, timeout=_REQUEST_TIMEOUT, allow_redirects=True)
-    except requests.RequestException as exc:
-        logger.debug("URL enrich fetch failed for %s: %s", url[:80], exc)
-        return None
-    if resp.status_code >= 400:
-        logger.debug("URL enrich HTTP %d for %s", resp.status_code, url[:80])
-        return None
-    content_type = resp.headers.get("Content-Type", "")
-    if "text/html" not in content_type and "application/xhtml" not in content_type:
-        logger.debug("URL enrich skipping non-HTML: %s", url[:80])
-        return None
-    try:
-        soup = BeautifulSoup(resp.text, "html.parser")
-    except Exception:
-        return None
+def _extract_from_soup(soup: BeautifulSoup) -> dict:
+    """Extract address fields from a BeautifulSoup document.
+
+    Tries JSON-LD, microdata, and heuristic extraction in order.
+    Returns a dict with address fields if found, or an empty dict.
+    """
     ld = _extract_json_ld(soup)
     if ld:
         fields = _parse_json_ld_address(ld)
         if fields.get("zip") or fields.get("city"):
-            logger.debug("URL enrich: JSON-LD hit for %s", url[:80])
             return fields
     md = _extract_microdata(soup)
     if md:
         fields = _parse_microdata_address(md)
         if fields.get("zip") or fields.get("city"):
-            logger.debug("URL enrich: microdata hit for %s", url[:80])
             return fields
     text = soup.get_text(separator=" ", strip=True)
     fields = _extract_heuristic(text)
     if fields.get("zip") or fields.get("city"):
-        logger.debug("URL enrich: heuristic hit for %s", url[:80])
         return fields
+    return {}
+
+
+def _fetch_and_extract(url: str, timeout: int = _REQUEST_TIMEOUT) -> dict | None:
+    """Fetch a URL and extract address data from the HTML.
+
+    Returns a dict with address fields on success, an empty dict if the page
+    loaded but had no extractable address, or None on blocked/fetch/HTTP errors.
+
+    On transient connection errors (timeout, DNS failure), retries once with
+    a longer timeout before giving up.
+    """
+    if _is_blocked_url(url):
+        logger.debug("URL blocked (SSRF/privacy): %s", url[:80])
+        return None
+
+    for attempt in range(2):
+        current_timeout = timeout if attempt == 0 else _REQUEST_TIMEOUT_RETRY
+        try:
+            resp = _SESSION.get(url, timeout=current_timeout, allow_redirects=True)
+        except requests.RequestException:
+            if attempt == 0:
+                logger.debug("URL enrich retrying %s with longer timeout", url[:60])
+                continue
+            logger.debug("URL enrich fetch failed for %s", url[:80])
+            return None
+
+        if resp.status_code >= 400:
+            logger.debug("URL enrich HTTP %d for %s", resp.status_code, url[:80])
+            return None
+        content_type = resp.headers.get("Content-Type", "")
+        if "text/html" not in content_type and "application/xhtml" not in content_type:
+            logger.debug("URL enrich skipping non-HTML: %s", url[:80])
+            return None
+        try:
+            soup = BeautifulSoup(resp.text, "html.parser")
+        except Exception:
+            return None
+        result = _extract_from_soup(soup)
+        if result:
+            logger.debug("URL enrich: address hit for %s", url[:80])
+            return result
+        return {}
+
     return None
+
+
+def _render_via_sidecar(url: str) -> dict | None:
+    """Send a URL to the Playwright sidecar for JS rendering.
+
+    Returns a dict with address fields on success, an empty dict if the page
+    loaded but had no extractable address, or None on sidecar errors.
+    """
+    if not _SIDECAR_URL:
+        return None
+    if _is_blocked_url(url):
+        return None
+    headers = {}
+    if _SIDECAR_API_KEY:
+        headers["Authorization"] = f"Bearer {_SIDECAR_API_KEY}"
+    try:
+        resp = _SESSION.post(
+            f"{_SIDECAR_URL.rstrip('/')}/render",
+            json={"url": url, "timeout": _SIDECAR_TIMEOUT},
+            headers=headers,
+            timeout=_SIDECAR_TIMEOUT + 10,
+        )
+    except requests.RequestException as exc:
+        logger.debug("Sidecar request failed for %s: %s", url[:60], exc)
+        return None
+    if resp.status_code != 200:
+        logger.debug("Sidecar returned %d for %s", resp.status_code, url[:60])
+        return None
+    try:
+        data = resp.json()
+    except (ValueError, TypeError):
+        logger.debug("Sidecar returned invalid JSON for %s", url[:60])
+        return None
+    html = data.get("html", "")
+    if not html:
+        return {}
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+    except Exception:
+        return None
+    result = _extract_from_soup(soup)
+    if result:
+        logger.debug("Sidecar: address hit for %s", url[:80])
+        return result
+    return {}
 
 
 def _enrich_one(event: EventItem) -> str:
     """Try to enrich a single event from its URLs.
 
     Returns a result tag: "enriched", "no_url", "blocked", "fetch_failed",
-    "no_address", or "no_field_update".
+    "no_address", "no_field_update", or "sidecar_enriched".
     """
     urls = []
     if event.primary_url:
@@ -314,14 +394,20 @@ def _enrich_one(event: EventItem) -> str:
     urls = urls[:_MAX_URLS_PER_EVENT]
     if not urls:
         return "no_url"
+
+    had_fetch_error = False
+    had_no_address = False
+
     for url in urls:
         fields = _fetch_and_extract(url)
         if fields is None:
             if _is_blocked_url(url):
                 return "blocked"
+            had_fetch_error = True
             continue
         if not fields.get("zip") and not fields.get("city"):
-            return "no_address"
+            had_no_address = True
+            continue
         if _apply_enrichment(event, fields):
             event.sources.append(
                 {
@@ -331,6 +417,45 @@ def _enrich_one(event: EventItem) -> str:
             )
             return "enriched"
         return "no_field_update"
+
+    # Event-level retry: if all URLs had fetch errors (no page loaded at all),
+    # retry the primary URL once with a longer timeout.
+    if had_fetch_error and not had_no_address and event.primary_url:
+        fields = _fetch_and_extract(
+            event.primary_url, timeout=_REQUEST_TIMEOUT_EVENT_RETRY
+        )
+        if fields is not None:
+            if not fields.get("zip") and not fields.get("city"):
+                had_no_address = True
+            elif _apply_enrichment(event, fields):
+                event.sources.append(
+                    {
+                        "url": event.primary_url,
+                        "sourceType": "url_enrich",
+                    }
+                )
+                return "enriched"
+            else:
+                return "no_field_update"
+
+    # Sidecar fallback: if static fetches all failed, try Playwright rendering.
+    if had_fetch_error and not had_no_address and _SIDECAR_URL and event.primary_url:
+        fields = _render_via_sidecar(event.primary_url)
+        if fields is not None:
+            if not fields.get("zip") and not fields.get("city"):
+                return "no_address"
+            if _apply_enrichment(event, fields):
+                event.sources.append(
+                    {
+                        "url": event.primary_url,
+                        "sourceType": "url_enrich",
+                    }
+                )
+                return "sidecar_enriched"
+            return "no_field_update"
+
+    if had_no_address:
+        return "no_address"
     return "fetch_failed"
 
 
@@ -355,6 +480,7 @@ def enrich_from_urls(
         "fetch_failed": 0,
         "no_address": 0,
         "no_field_update": 0,
+        "sidecar_enriched": 0,
     }
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(_enrich_one, ev): ev for ev in candidates}
@@ -369,14 +495,15 @@ def enrich_from_urls(
 
     logger.info(
         "URL enrich results: %d enriched, %d no_url, %d blocked, "
-        "%d fetch_failed, %d no_address, %d no_field_update "
-        "(of %d candidates)",
+        "%d fetch_failed, %d no_address, %d no_field_update, "
+        "%d sidecar_enriched (of %d candidates)",
         counters["enriched"],
         counters["no_url"],
         counters["blocked"],
         counters["fetch_failed"],
         counters["no_address"],
         counters["no_field_update"],
+        counters.get("sidecar_enriched", 0),
         len(candidates),
     )
-    return counters["enriched"]
+    return counters["enriched"] + counters.get("sidecar_enriched", 0)

@@ -1,9 +1,10 @@
 """Tests for pipeline.fetchers.url_enrich."""
 
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 import responses as responses_lib
 
 from pipeline.fetchers.url_enrich import (
@@ -12,6 +13,7 @@ from pipeline.fetchers.url_enrich import (
     _is_blocked_url,
     _parse_json_ld_address,
     _parse_microdata_address,
+    _render_via_sidecar,
     enrich_from_urls,
 )
 from pipeline.models import EventItem
@@ -411,3 +413,278 @@ class TestEnrichFromUrls:
         assert (
             url_enrich_sources[0]["url"] == "https://www.example.com/events/home-show"
         )
+
+
+# ── Retry logic ────────────────────────────────────────────────────────────────
+
+
+class TestFetchAndExtractRetry:
+    def test_retry_on_timeout_then_success(self):
+        """First request times out, retry succeeds with longer timeout."""
+        html = _html_with_json_ld(
+            {
+                "@type": "PostalAddress",
+                "addressLocality": "Frederick",
+                "addressRegion": "MD",
+                "postalCode": "21702",
+            }
+        )
+        from pipeline.fetchers.url_enrich import _fetch_and_extract
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = html
+        mock_resp.headers = {"Content-Type": "text/html"}
+
+        call_count = 0
+
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise requests.ConnectionError("timeout")
+            return mock_resp
+
+        with patch("pipeline.fetchers.url_enrich._SESSION") as mock_session:
+            mock_session.get.side_effect = side_effect
+            result = _fetch_and_extract("https://www.example.com/events/home-show")
+        assert result is not None
+        assert result["zip"] == "21702"
+        assert call_count == 2
+
+    def test_retry_exhausted_returns_none(self):
+        """Both attempts fail — returns None."""
+        from pipeline.fetchers.url_enrich import _fetch_and_extract
+
+        with patch("pipeline.fetchers.url_enrich._SESSION") as mock_session:
+            mock_session.get.side_effect = requests.ConnectionError("timeout")
+            result = _fetch_and_extract("https://www.example.com/events/home-show")
+        assert result is None
+        assert mock_session.get.call_count == 2
+
+    @responses_lib.activate
+    def test_no_retry_on_http_error(self):
+        """HTTP 404 returns None immediately — no retry."""
+        url = "https://www.example.com/events/home-show"
+        responses_lib.add(responses_lib.GET, url, status=404)
+        from pipeline.fetchers.url_enrich import _fetch_and_extract
+
+        result = _fetch_and_extract(url)
+        assert result is None
+        assert len(responses_lib.calls) == 1
+
+    @responses_lib.activate
+    def test_no_retry_on_no_address(self):
+        """Page loads but has no address — returns empty dict, no retry."""
+        url = "https://www.example.com/events/home-show"
+        responses_lib.add(
+            responses_lib.GET,
+            url,
+            body="<html><body>No address here</body></html>",
+            status=200,
+            content_type="text/html",
+        )
+        from pipeline.fetchers.url_enrich import _fetch_and_extract
+
+        result = _fetch_and_extract(url)
+        assert result == {}
+
+
+class TestEnrichOneEventRetry:
+    def test_event_level_retry_on_fetch_error(self):
+        """All URLs fail with fetch errors, then primary URL retry succeeds."""
+        html = _html_with_json_ld(
+            {
+                "@type": "PostalAddress",
+                "addressLocality": "Frederick",
+                "addressRegion": "MD",
+                "postalCode": "21702",
+            }
+        )
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = html
+        mock_resp.headers = {"Content-Type": "text/html"}
+
+        call_count = 0
+
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                raise requests.ConnectionError("timeout")
+            return mock_resp
+
+        with patch("pipeline.fetchers.url_enrich._SESSION") as mock_session:
+            mock_session.get.side_effect = side_effect
+            event = _make_event(zip_code="", city="", county="")
+            count = enrich_from_urls([event])
+        assert count == 1
+        assert event.zip == "21702"
+
+    @responses_lib.activate
+    def test_no_event_retry_when_page_has_no_address(self):
+        """If a page loaded but had no address, no event-level retry."""
+        url = "https://www.example.com/events/home-show"
+        responses_lib.add(
+            responses_lib.GET,
+            url,
+            body="<html><body>No address data</body></html>",
+            status=200,
+            content_type="text/html",
+        )
+        event = _make_event(zip_code="", city="", county="")
+        count = enrich_from_urls([event])
+        assert count == 0
+
+    def test_no_event_retry_when_all_urls_blocked(self):
+        """Blocked URLs return 'blocked' immediately, no retry."""
+        event = _make_event(primary_url="http://localhost/evil", zip_code="", county="")
+        count = enrich_from_urls([event])
+        assert count == 0
+
+    def test_event_retry_also_fails(self):
+        """Both initial fetch and event-level retry fail — returns fetch_failed."""
+        with patch("pipeline.fetchers.url_enrich._SESSION") as mock_session:
+            mock_session.get.side_effect = requests.ConnectionError("timeout")
+            event = _make_event(zip_code="", city="", county="")
+            count = enrich_from_urls([event])
+        assert count == 0
+
+
+# ── Sidecar integration ────────────────────────────────────────────────────────
+
+
+class TestRenderViaSidecar:
+    def test_returns_none_when_sidecar_url_not_set(self):
+        """No sidecar URL configured — returns None immediately."""
+        with patch("pipeline.fetchers.url_enrich._SIDECAR_URL", ""):
+            result = _render_via_sidecar("https://www.example.com/events/home-show")
+        assert result is None
+
+    def test_returns_none_for_blocked_url(self):
+        """Blocked URLs are not sent to sidecar."""
+        with patch("pipeline.fetchers.url_enrich._SIDECAR_URL", "http://sidecar:8000"):
+            result = _render_via_sidecar("http://localhost/evil")
+        assert result is None
+
+    def test_returns_none_on_connection_error(self):
+        """Sidecar unreachable — returns None."""
+        with patch("pipeline.fetchers.url_enrich._SIDECAR_URL", "http://sidecar:8000"):
+            with patch("pipeline.fetchers.url_enrich._SESSION") as mock_session:
+                mock_session.post.side_effect = requests.ConnectionError("refused")
+                result = _render_via_sidecar("https://www.example.com/events/home-show")
+        assert result is None
+
+    def test_returns_none_on_sidecar_error(self):
+        """Sidecar returns 502 — returns None."""
+        with patch("pipeline.fetchers.url_enrich._SIDECAR_URL", "http://sidecar:8000"):
+            with patch("pipeline.fetchers.url_enrich._SESSION") as mock_session:
+                mock_resp = MagicMock()
+                mock_resp.status_code = 502
+                mock_resp.json.return_value = {"error": "Failed to load page"}
+                mock_session.post.return_value = mock_resp
+                result = _render_via_sidecar("https://www.example.com/events/home-show")
+        assert result is None
+
+    def test_extracts_address_from_sidecar_html(self):
+        """Sidecar returns rendered HTML with JSON-LD address."""
+        html = _html_with_json_ld(
+            {
+                "@type": "PostalAddress",
+                "addressLocality": "Frederick",
+                "addressRegion": "MD",
+                "postalCode": "21702",
+            }
+        )
+        with patch("pipeline.fetchers.url_enrich._SIDECAR_URL", "http://sidecar:8000"):
+            with patch("pipeline.fetchers.url_enrich._SESSION") as mock_session:
+                mock_resp = MagicMock()
+                mock_resp.status_code = 200
+                mock_resp.json.return_value = {
+                    "html": html,
+                    "status": 200,
+                    "url": "https://www.example.com/events/home-show",
+                }
+                mock_session.post.return_value = mock_resp
+                result = _render_via_sidecar("https://www.example.com/events/home-show")
+        assert result is not None
+        assert result["zip"] == "21702"
+        assert result["city"] == "Frederick"
+
+    def test_returns_empty_dict_for_no_address(self):
+        """Sidecar returns HTML but no address data — returns empty dict."""
+        html = "<html><body>Just a page with no address</body></html>"
+        with patch("pipeline.fetchers.url_enrich._SIDECAR_URL", "http://sidecar:8000"):
+            with patch("pipeline.fetchers.url_enrich._SESSION") as mock_session:
+                mock_resp = MagicMock()
+                mock_resp.status_code = 200
+                mock_resp.json.return_value = {
+                    "html": html,
+                    "status": 200,
+                    "url": "https://www.example.com/events/home-show",
+                }
+                mock_session.post.return_value = mock_resp
+                result = _render_via_sidecar("https://www.example.com/events/home-show")
+        assert result == {}
+
+
+class TestEnrichOneSidecar:
+    def test_sidecar_enriched_on_static_fetch_failure(self):
+        """Static fetch fails, sidecar succeeds — returns sidecar_enriched."""
+        html = _html_with_json_ld(
+            {
+                "@type": "PostalAddress",
+                "addressLocality": "Frederick",
+                "addressRegion": "MD",
+                "postalCode": "21702",
+            }
+        )
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "html": html,
+            "status": 200,
+            "url": "https://www.example.com/events/home-show",
+        }
+
+        call_count = 0
+
+        def get_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            raise requests.ConnectionError("timeout")
+
+        with patch("pipeline.fetchers.url_enrich._SESSION") as mock_session:
+            mock_session.get.side_effect = get_side_effect
+            mock_session.post.return_value = mock_resp
+            with patch(
+                "pipeline.fetchers.url_enrich._SIDECAR_URL", "http://sidecar:8000"
+            ):
+                event = _make_event(zip_code="", city="", county="")
+                count = enrich_from_urls([event])
+        assert count == 1
+        assert event.zip == "21702"
+
+    @responses_lib.activate
+    def test_no_sidecar_call_when_page_has_no_address(self):
+        """If a page loaded but had no address, no sidecar fallback."""
+        url = "https://www.example.com/events/home-show"
+        responses_lib.add(
+            responses_lib.GET,
+            url,
+            body="<html><body>No address data</body></html>",
+            status=200,
+            content_type="text/html",
+        )
+        event = _make_event(zip_code="", city="", county="")
+        with patch("pipeline.fetchers.url_enrich._SIDECAR_URL", "http://sidecar:8000"):
+            count = enrich_from_urls([event])
+        assert count == 0
+
+    def test_sidecar_not_called_when_url_empty(self):
+        """No primary_url — no sidecar call."""
+        event = _make_event(primary_url="", zip_code="", county="")
+        with patch("pipeline.fetchers.url_enrich._SIDECAR_URL", "http://sidecar:8000"):
+            count = enrich_from_urls([event])
+        assert count == 0
