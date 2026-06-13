@@ -22,10 +22,11 @@ from .constants import STATE_NAMES
 # Reverse lookup: lowercase state name → abbreviation (e.g. "maryland" → "MD")
 _STATE_NAME_TO_ABBR: dict[str, str] = {v.lower(): k for k, v in STATE_NAMES.items()}
 
-# ── Organic scraper: non-target state guard ───────────────────────────────────
+# ── Non-target state guard ───────────────────────────────────────────────────
 # Full state names for states outside our 10-state coverage area.
-# Used to reject organic Serper results that match the event keyword regex
-# but whose snippet text reveals the event is in a non-target state.
+# Used to reject Serper results that match event keywords but are clearly
+# located in a non-target state (detected in title, URL, or address text).
+# IMPORTANT: Must NOT include any target state names (MD/VA/PA/NJ/DE/DC/MO/IL/OH/KS).
 _NON_TARGET_STATES: frozenset[str] = frozenset(
     {
         "Alabama",
@@ -41,7 +42,6 @@ _NON_TARGET_STATES: frozenset[str] = frozenset(
         "Idaho",
         "Indiana",
         "Iowa",
-        "Kansas",
         "Kentucky",
         "Louisiana",
         "Maine",
@@ -374,33 +374,35 @@ def normalize_event(
 
     source_type = evt.get("_source_type", "serper_organic")
 
-    # ── Organic false-positive guard ──────────────────────────────────────
-    # Serper organic results come from a whole-page snippet. A page about
-    # fairs in multiple states can match the event keyword regex even if the
-    # specific event the title references is outside our coverage area.
-    # If the snippet/address text mentions a non-target state (by full name
-    # or address-style code), reject this event.
-    if source_type == "serper_organic" and addr_full:
-        addr_lower = addr_full.lower()
-        rejected = False
-        for nt_name in _NON_TARGET_STATES:
-            if nt_name.lower() in addr_lower:
+    url = evt.get("link", "")
+
+    # ── Non-target state guard ──────────────────────────────────────────────
+    # Reject events whose title, URL, or address clearly indicates they are in
+    # a state outside our coverage area. This prevents Kansas-query results that
+    # are actually in Nebraska, Iowa, etc. from entering the pipeline.
+    # Applied to ALL source types — serper_events can also return out-of-state
+    # results when a border city (e.g. Kansas City, MO) matches a KS query.
+    combined_lower = f"{name} {addr_full} {url}".lower()
+    rejected = False
+    for nt_name in _NON_TARGET_STATES:
+        if nt_name.lower() in combined_lower:
+            rejected = True
+            break
+    if not rejected:
+        # State abbreviations are uppercase in addresses (", NE") — search
+        # the original-case text, not the lowercased version.
+        combined_orig = f"{name} {addr_full} {url}"
+        for m in _ADDR_STATE_RE.finditer(combined_orig):
+            st = m.group(1)
+            if st not in _TARGET_ABBREVIATIONS:
                 rejected = True
                 break
-        if not rejected:
-            for m in _ADDR_STATE_RE.finditer(addr_full):
-                st = m.group(1)
-                if st not in _TARGET_ABBREVIATIONS:
-                    rejected = True
-                    break
-        if rejected:
-            logger.debug(
-                "Rejected organic false-positive: %r (addr mentions non-target state)",
-                name[:60],
-            )
-            return None
-
-    url = evt.get("link", "")
+    if rejected:
+        logger.debug(
+            "Rejected non-target state event: %r (mentions out-of-state)",
+            name[:60],
+        )
+        return None
     current_year = date.today().year
     page_score = (
         (2 if str(current_year) in name else 0)

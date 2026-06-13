@@ -352,3 +352,93 @@ class TestNormalizeEvent:
         ]
         results = organics_to_events(organics)
         assert len(results) == 1
+
+
+class TestNonTargetStateGuard:
+    """Test that events mentioning non-target states are rejected."""
+
+    def test_rejects_nebraska_in_title(self):
+        evt = {
+            "title": "Chase County Fair - Nebraska Association of Fair Managers",
+            "date": "Jul 1, 2026",
+            "address": "",
+            "link": "https://nebraskafairs.org/fairs.php?fairid=14",
+            "_source_type": "serper_organic",
+        }
+        assert normalize_event(evt, "county fair Kansas", "KS") is None
+
+    def test_rejects_nebraska_in_url(self):
+        evt = {
+            "title": "Cheyenne County Fair - Nebraska Extension",
+            "date": "Jul 1, 2026",
+            "address": "",
+            "link": "https://extension.unl.edu/statewide/cheyenne/fair",
+            "_source_type": "serper_organic",
+        }
+        assert normalize_event(evt, "county fair Kansas", "KS") is None
+
+    def test_rejects_colorado_in_title(self):
+        evt = {
+            "title": "Kiowa County Fair Board - Colorado",
+            "date": "Jul 1, 2026",
+            "address": "",
+            "link": "https://kiowacounty.colorado.gov/fair",
+            "_source_type": "serper_events",
+        }
+        assert normalize_event(evt, "county fair Kansas", "KS") is None
+
+    def test_rejects_iowa_in_url(self):
+        evt = {
+            "title": "Clay County Fair 2026",
+            "date": "Sep 1, 2026",
+            "address": "",
+            "link": "https://governor.iowa.gov/events/clay-county-fair",
+            "_source_type": "serper_events",
+        }
+        assert normalize_event(evt, "county fair Kansas", "KS") is None
+
+    def test_rejects_non_target_state_abbreviation_in_address(self):
+        evt = {
+            "title": "County Fair",
+            "date": "Jul 1, 2026",
+            "address": "Pawnee City, NE 68420",
+            "link": "https://example.com",
+            "_source_type": "serper_organic",
+        }
+        assert normalize_event(evt, "county fair Kansas", "KS") is None
+
+    def test_allows_kansas_in_title(self):
+        """Kansas is a target state — events mentioning it should NOT be rejected."""
+        evt = {
+            "title": "Kansas State Fair 2026",
+            "date": "Sep 1, 2026",
+            "address": "Hutchinson, KS",
+            "link": "https://kansasstatefair.com",
+            "_source_type": "serper_events",
+        }
+        item = normalize_event(evt, "state fair Kansas", "KS")
+        assert item is not None
+        assert item.state == "KS"
+
+    def test_allows_missouri_in_address(self):
+        """Missouri is a target state — events in MO should NOT be rejected."""
+        evt = {
+            "title": "Home Show",
+            "date": "Mar 1, 2026",
+            "address": "St. Louis, MO 63101",
+            "link": "https://example.com",
+            "_source_type": "serper_events",
+        }
+        item = normalize_event(evt, "home show Missouri", "MO")
+        assert item is not None
+
+    def test_guard_applies_to_serper_events_too(self):
+        """The guard should reject serper_events, not just serper_organic."""
+        evt = {
+            "title": "Seward County Fair - Nebraska Association",
+            "date": "Jul 1, 2026",
+            "address": "",
+            "link": "https://nebraskafairs.org/fairs.php?fairid=303",
+            "_source_type": "serper_events",
+        }
+        assert normalize_event(evt, "county fair Kansas", "KS") is None
