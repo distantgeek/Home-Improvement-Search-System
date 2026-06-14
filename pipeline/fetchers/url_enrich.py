@@ -104,10 +104,19 @@ def _get_session() -> requests.Session:
 
 
 # Domains where we keep the event in the index but skip URL enrichment entirely.
-# Facebook events require login for their pages; snippet extraction in normalize.py
-# already provides county/city data for ~91% of Facebook events, so fetching the
-# page would waste budget and return only a redirect to a login wall.
-_ENRICH_SKIP_RE = re.compile(r"\b(facebook\.com)\b")
+# Facebook events require login; snippet extraction already covers ~91% of them.
+# Matched against the URL hostname only to prevent query-param false positives
+# and avoid \b boundary issues with subdomains like "notfacebook.com".
+_ENRICH_SKIP_DOMAINS: frozenset[str] = frozenset({"facebook.com"})
+
+
+def _is_enrich_skip_domain(url: str) -> bool:
+    """Return True if url belongs to a domain we keep but skip enriching."""
+    try:
+        hostname = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return False
+    return any(hostname == d or hostname.endswith("." + d) for d in _ENRICH_SKIP_DOMAINS)
 
 
 def _is_private_ip(hostname: str) -> bool:
@@ -497,7 +506,7 @@ def _enrich_one(event: EventItem) -> str:
     both JS-heavy pages (load OK, address rendered by JS) and pages that fail
     to load at all (SPAs, bot-blocking, etc.).
     """
-    if event.primary_url and _ENRICH_SKIP_RE.search(event.primary_url):
+    if event.primary_url and _is_enrich_skip_domain(event.primary_url):
         return "domain_skip"
 
     urls = []
@@ -603,6 +612,10 @@ def enrich_from_urls(
             ev = futures[future]
             try:
                 result = future.result()
+                if result not in counters:
+                    logger.warning(
+                        "Unknown _enrich_one result tag %r for %s", result, ev.name[:60]
+                    )
                 counters[result] = counters.get(result, 0) + 1
             except Exception as exc:
                 logger.error("Unexpected error enriching %s: %s", ev.name[:60], exc)

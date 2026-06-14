@@ -9,10 +9,11 @@ import responses as responses_lib
 
 from pipeline.fetchers.url_enrich import (
     _CITY_STATE_ZIP_RE,
-    _ENRICH_SKIP_RE,
+    _ENRICH_SKIP_DOMAINS,
     _enrich_one,
     _extract_heuristic,
     _is_blocked_url,
+    _is_enrich_skip_domain,
     _parse_json_ld_address,
     _parse_microdata_address,
     _render_via_sidecar,
@@ -104,13 +105,21 @@ class TestEnrichSkipDomain:
         result = _enrich_one(event)
         assert result == "domain_skip"
 
-    def test_enrich_skip_re_matches_facebook(self):
-        assert _ENRICH_SKIP_RE.search("https://www.facebook.com/events/123")
-        assert _ENRICH_SKIP_RE.search("https://m.facebook.com/groups/county-fairs")
+    def test_enrich_skip_domain_matches_facebook(self):
+        assert _is_enrich_skip_domain("https://www.facebook.com/events/123")
+        assert _is_enrich_skip_domain("https://m.facebook.com/groups/county-fairs")
 
-    def test_enrich_skip_re_does_not_match_legitimate_domains(self):
-        assert not _ENRICH_SKIP_RE.search("https://www.charlescountyfair.com/")
-        assert not _ENRICH_SKIP_RE.search("https://eventbrite.com/e/county-fair-123")
+    def test_enrich_skip_domain_does_not_match_legitimate_domains(self):
+        assert not _is_enrich_skip_domain("https://www.charlescountyfair.com/")
+        assert not _is_enrich_skip_domain("https://eventbrite.com/e/county-fair-123")
+
+    def test_enrich_skip_domain_not_fooled_by_query_param(self):
+        # SSRF bypass: query param containing facebook.com must NOT trigger skip
+        assert not _is_enrich_skip_domain("https://192.168.1.1/?ref=facebook.com")
+        assert not _is_enrich_skip_domain("https://10.0.0.1/admin?utm_source=facebook.com")
+
+    def test_enrich_skip_domains_constant_contains_facebook(self):
+        assert "facebook.com" in _ENRICH_SKIP_DOMAINS
 
 
 # ── SSRF protection ──────────────────────────────────────────────────────────

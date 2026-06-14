@@ -15,12 +15,24 @@ logger = logging.getLogger(__name__)
 _SUFFIX_RE = re.compile(
     r"\s+(County|Borough|Township|Parish|District)\s*$", re.IGNORECASE
 )
-_PUNC_RE = re.compile(r"[.'']")  # ASCII period, ASCII apostrophe, Unicode right single quote
+_PUNC_RE = re.compile(
+    r"[."
+    r"'"     # U+0027 ASCII apostrophe
+    r"’"  # U+2019 right single quotation mark (curly close)
+    r"‘"  # U+2018 left single quotation mark (curly open)
+    r"ʼ"  # U+02BC modifier letter apostrophe
+    r"]"
+)
+# Matches county/city/borough/parish suffix — used to decide whether to add
+# a "county" suffix when building _county_norm lookup keys.
+_SUFFIX_CHECK_RE = re.compile(r"\b(?:county|city|borough|parish)\b", re.IGNORECASE)
 
 
 def _punc_normalize(s: str) -> str:
-    """Strip periods and apostrophes so 'St Marys' matches 'St. Mary's County'."""
+    """Strip periods and apostrophe variants for fuzzy county name matching."""
     return _PUNC_RE.sub("", s)
+
+
 _CITY_SUFFIX_RE = re.compile(r"\s+city\s*$", re.IGNORECASE)
 _STATE_ZIP_RE = re.compile(r",?\s*[A-Z]{2}\s*\d{5}(-\d{4})?\s*$")
 _TRAILING_COMMA_RE = re.compile(r",\s*$")
@@ -78,7 +90,6 @@ class Enricher:
         # the canonical form (e.g. "st marys county" → "St. Mary's County").
         # Also maps the "+ county" variant for bare names (COUNTIES stores "St. Mary's"
         # not "St. Mary's County") so external data like "St Marys County" resolves.
-        _suffix_check = re.compile(r"\b(county|city|borough|parish)\b", re.IGNORECASE)
         self._county_norm: dict[str, dict[str, str]] = {}
         for state, counties in COUNTIES.items():
             state_map: dict[str, str] = {}
@@ -88,7 +99,7 @@ class Enricher:
                     state_map[norm] = c
                 # For bare names like "St. Mary's", also map "st marys county" so
                 # externally-supplied values with suffix ("St Marys County") resolve.
-                if not _suffix_check.search(norm):
+                if not _SUFFIX_CHECK_RE.search(norm):
                     norm_county = norm + " county"
                     if norm_county not in state_map:
                         state_map[norm_county] = c
@@ -108,6 +119,9 @@ class Enricher:
         all_counties = [c for counties in COUNTIES.values() for c in counties]
         for county in sorted(all_counties, key=len, reverse=True):
             norm = _punc_normalize(county)
+            if not norm:
+                logger.warning("County %r normalizes to empty string — skipping", county)
+                continue
             if norm.lower() not in seen:
                 seen.add(norm.lower())
                 unique.append(re.escape(norm))
@@ -179,7 +193,7 @@ class Enricher:
         # Scan text is punctuation-normalized (periods/apostrophes stripped) so
         # "St Marys County Fair" matches the canonical "St. Mary's County".
         if not event.county and addr_full:
-            scan = _punc_normalize(f"{addr_full} {event.venue} {event.name}")
+            scan = _punc_normalize(f"{addr_full} {event.venue or ''} {event.name or ''}")
             m = self._county_re.search(scan)
             if m:
                 matched_norm = m.group(1).lower()
@@ -241,11 +255,13 @@ class Enricher:
             canonical = self._county_norm.get(event.state, {}).get(norm)
             if canonical and canonical != event.county:
                 event.county = canonical
-                if not event.county_full:
-                    if re.search(r"\b(?:County|City|Borough)\b", canonical, re.IGNORECASE):
-                        event.county_full = canonical
-                    else:
-                        event.county_full = canonical + " County"
+                # Always recompute county_full when county is corrected so the two
+                # fields never diverge (e.g. county="St. Mary's" but county_full
+                # still holds the uncorrected "St Marys County" from external data).
+                if re.search(r"\b(?:County|City|Borough)\b", canonical, re.IGNORECASE):
+                    event.county_full = canonical
+                else:
+                    event.county_full = canonical + " County"
 
         if not event.county:
             logger.debug(

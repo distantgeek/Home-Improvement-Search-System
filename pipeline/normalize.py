@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import date, datetime
+from urllib.parse import urlparse
 
 from dateutil import parser as dateutil_parser
 
@@ -138,19 +139,29 @@ ATTENDANCE_RE = re.compile(
 
 EMAIL_RE = re.compile(r"\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b")
 PHONE_RE = re.compile(r"\(?\b\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}\b")
-SKIP_DOMAIN_RE = re.compile(
-    r"\b("
-    # Social / media — no event address content
-    r"wikipedia\.org|instagram\.com|twitter\.com|x\.com"
-    r"|tiktok\.com|pinterest\.com|linkedin\.com"
-    # Ticket aggregators — link to events but don't host address data
-    r"|seatgeek\.com|etix\.com|bandsintown\.com|10times\.com"
-    # Review / mapping / streaming — not event landing pages
-    r"|yelp\.com|mapquest\.com|spotify\.com"
-    # Forum / community — mentions events but not authoritative pages
-    r"|reddit\.com"
-    r")\b"
-)
+# Domains rejected from the organic pipeline entirely — not event landing pages.
+# Matched against the URL hostname only (not the full URL string) to prevent
+# false positives from query parameters and to avoid \b boundary edge cases.
+_SKIP_DOMAINS: frozenset[str] = frozenset({
+    # Social / media
+    "wikipedia.org", "instagram.com", "twitter.com", "x.com",
+    "tiktok.com", "pinterest.com", "linkedin.com",
+    # Ticket aggregators
+    "seatgeek.com", "etix.com", "bandsintown.com", "10times.com",
+    # Review / mapping / streaming
+    "yelp.com", "mapquest.com", "spotify.com",
+    # Forum / community
+    "reddit.com",
+})
+
+
+def _is_skip_domain(url: str) -> bool:
+    """Return True if url's hostname matches a rejected domain or any subdomain of it."""
+    try:
+        hostname = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return False
+    return any(hostname == d or hostname.endswith("." + d) for d in _SKIP_DOMAINS)
 _RANGE_SPLIT_RE = re.compile(r"\s*[–\-]\s*")
 _YEAR_IN_RANGE_RE = re.compile(r"\b(20[2-9]\d)\b")
 _RANGE_END_RE = re.compile(r"[–\-]\s*(?:(\w+)\s+)?(\d+)(?:,\s*(\d{4}))?")
@@ -166,7 +177,7 @@ def organics_to_events(organics: list[dict]) -> list[dict]:
     seen_urls: set[str] = set()
     for o in organics:
         link = o.get("link", "")
-        if SKIP_DOMAIN_RE.search(link):
+        if _is_skip_domain(link):
             continue
         if link.lower().endswith(".pdf"):
             logger.debug("Skipping PDF URL: %s", link[:80])
