@@ -431,10 +431,12 @@ class TestFetchAndExtractRetry:
         )
         from pipeline.fetchers.url_enrich import _fetch_and_extract
 
+        target_url = "https://www.example.com/events/home-show"
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.text = html
         mock_resp.headers = {"Content-Type": "text/html"}
+        mock_resp.url = target_url
 
         call_count = 0
 
@@ -447,7 +449,7 @@ class TestFetchAndExtractRetry:
 
         with patch("pipeline.fetchers.url_enrich._SESSION") as mock_session:
             mock_session.get.side_effect = side_effect
-            result = _fetch_and_extract("https://www.example.com/events/home-show")
+            result = _fetch_and_extract(target_url)
         assert result is not None
         assert result["zip"] == "21702"
         assert call_count == 2
@@ -505,6 +507,7 @@ class TestEnrichOneEventRetry:
         mock_resp.status_code = 200
         mock_resp.text = html
         mock_resp.headers = {"Content-Type": "text/html"}
+        mock_resp.url = "https://www.example.com/events/home-show"
 
         call_count = 0
 
@@ -667,20 +670,54 @@ class TestEnrichOneSidecar:
         assert event.zip == "21702"
 
     @responses_lib.activate
-    def test_no_sidecar_call_when_page_has_no_address(self):
-        """If a page loaded but had no address, no sidecar fallback."""
+    def test_sidecar_called_when_page_has_no_address(self):
+        """JS-heavy page: static fetch loads but finds no address → sidecar is tried."""
         url = "https://www.example.com/events/home-show"
+        html_with_address = _html_with_json_ld(
+            {
+                "@type": "PostalAddress",
+                "addressLocality": "Frederick",
+                "addressRegion": "MD",
+                "postalCode": "21702",
+            }
+        )
         responses_lib.add(
             responses_lib.GET,
             url,
-            body="<html><body>No address data</body></html>",
+            body="<html><body>No address data in static HTML</body></html>",
             status=200,
             content_type="text/html",
         )
+        mock_sidecar_resp = MagicMock()
+        mock_sidecar_resp.status_code = 200
+        mock_sidecar_resp.json.return_value = {
+            "html": html_with_address,
+            "url": url,
+        }
         event = _make_event(zip_code="", city="", county="")
         with patch("pipeline.fetchers.url_enrich._SIDECAR_URL", "http://sidecar:8000"):
-            count = enrich_from_urls([event])
-        assert count == 0
+            with patch("pipeline.fetchers.url_enrich._SESSION") as mock_session:
+                mock_session.get.side_effect = lambda *a, **kw: responses_lib.calls and MagicMock(
+                    status_code=200,
+                    text="<html><body>No address data in static HTML</body></html>",
+                    headers={"Content-Type": "text/html"},
+                    url=url,
+                )
+                mock_session.post.return_value = mock_sidecar_resp
+                # Use enrich_from_urls but mock at SESSION level
+        # Simpler: patch _fetch_and_extract and _render_via_sidecar directly
+        with patch("pipeline.fetchers.url_enrich._fetch_and_extract", return_value={}):
+            with patch(
+                "pipeline.fetchers.url_enrich._render_via_sidecar",
+                return_value={"zip": "21702", "city": "Frederick", "state": "MD"},
+            ) as mock_sidecar:
+                with patch(
+                    "pipeline.fetchers.url_enrich._SIDECAR_URL", "http://sidecar:8000"
+                ):
+                    count = enrich_from_urls([event])
+        assert mock_sidecar.called, "Sidecar should be called for JS-heavy pages"
+        assert count == 1
+        assert event.zip == "21702"
 
     def test_sidecar_not_called_when_url_empty(self):
         """No primary_url — no sidecar call."""
@@ -688,3 +725,89 @@ class TestEnrichOneSidecar:
         with patch("pipeline.fetchers.url_enrich._SIDECAR_URL", "http://sidecar:8000"):
             count = enrich_from_urls([event])
         assert count == 0
+
+
+# ── Multi-event listing page deduplication ───────────────────────────────────
+
+
+class TestMultiEventJsonLd:
+    def test_best_matching_event_selected_on_listing_page(self):
+        """When a page has multiple Event JSON-LD blocks, the one matching the
+        event name is returned rather than the first."""
+        from pipeline.fetchers.url_enrich import _extract_json_ld
+        from bs4 import BeautifulSoup
+
+        html = """<html><head>
+        <script type="application/ld+json">[
+          {
+            "@type": "Event",
+            "name": "Annapolis Boat Show",
+            "location": {"address": {"@type": "PostalAddress",
+              "addressLocality": "Annapolis", "addressRegion": "MD",
+              "postalCode": "21401"}}
+          },
+          {
+            "@type": "Event",
+            "name": "Maryland Home Show",
+            "location": {"address": {"@type": "PostalAddress",
+              "addressLocality": "Timonium", "addressRegion": "MD",
+              "postalCode": "21093"}}
+          },
+          {
+            "@type": "Event",
+            "name": "Frederick County Fair",
+            "location": {"address": {"@type": "PostalAddress",
+              "addressLocality": "Frederick", "addressRegion": "MD",
+              "postalCode": "21702"}}
+          }
+        ]</script>
+        </head><body></body></html>"""
+        soup = BeautifulSoup(html, "html.parser")
+        result = _extract_json_ld(soup, event_name="Frederick County Fair")
+        assert result is not None
+        assert result["name"] == "Frederick County Fair"
+
+    def test_graph_wrapper_events_are_collected(self):
+        """@graph-wrapped JSON-LD events are flattened and considered."""
+        from pipeline.fetchers.url_enrich import _extract_json_ld
+        from bs4 import BeautifulSoup
+
+        html = """<html><head>
+        <script type="application/ld+json">{
+          "@context": "https://schema.org",
+          "@graph": [
+            {
+              "@type": "Event",
+              "name": "Spring Home Show",
+              "location": {"address": {"postalCode": "21201", "addressLocality": "Baltimore"}}
+            }
+          ]
+        }</script>
+        </head><body></body></html>"""
+        soup = BeautifulSoup(html, "html.parser")
+        result = _extract_json_ld(soup, event_name="Spring Home Show")
+        assert result is not None
+        assert result.get("name") == "Spring Home Show"
+
+
+# ── Context-aware heuristic ──────────────────────────────────────────────────
+
+
+class TestHeuristicContextWindow:
+    def test_extracts_zip_near_event_name_not_first_zip(self):
+        """When the page has multiple ZIPs, the one near the event name wins."""
+        text = (
+            "Annual Craft Fair Portland OR 97201 "
+            "followed by lots of other content ... "
+            "Maryland Home Show Frederick MD 21702 great event"
+        )
+        result = _extract_heuristic(text, event_name="Maryland Home Show")
+        assert result.get("zip") == "21702", (
+            "Should return ZIP near the event name, not the first ZIP on the page"
+        )
+
+    def test_falls_back_to_full_page_when_name_not_found(self):
+        """If event name is absent from page text, falls back to full-page scan."""
+        text = "Some venue Baltimore, MD 21201 hosts events"
+        result = _extract_heuristic(text, event_name="Event Not On This Page")
+        assert result.get("zip") == "21201"

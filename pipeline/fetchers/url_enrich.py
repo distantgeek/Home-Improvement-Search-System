@@ -16,6 +16,7 @@ SSRF protection:
 from __future__ import annotations
 
 import ipaddress
+import json
 import logging
 import os
 import re
@@ -25,6 +26,7 @@ from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
+from rapidfuzz import fuzz
 
 from ..models import EventItem
 
@@ -122,35 +124,91 @@ def _is_blocked_url(url: str) -> bool:
     return False
 
 
-def _extract_json_ld(soup: BeautifulSoup) -> dict | None:
+_EVENT_LD_TYPES = frozenset(
+    ("event", "businessevent", "festival", "saleevent", "sportsevent", "educationevent")
+)
+_NAME_MATCH_THRESHOLD = 50
+
+
+def _ld_has_address(item: dict) -> bool:
+    place = item.get("location")
+    if isinstance(place, dict):
+        addr = place.get("address")
+        if isinstance(addr, dict) and (
+            addr.get("postalCode") or addr.get("addressLocality")
+        ):
+            return True
+    return False
+
+
+def _extract_json_ld(soup: BeautifulSoup, event_name: str = "") -> dict | None:
+    """Extract the most relevant Event JSON-LD from the page.
+
+    On listing pages with multiple events, scores all candidates against
+    event_name using token-set ratio and returns the best match above
+    _NAME_MATCH_THRESHOLD. Falls back to the first candidate with an address
+    when no name match is confident enough.
+    """
+    candidates: list[dict] = []
+    fallbacks: list[dict] = []  # non-event-type items that have address data
+
     for tag in soup.find_all("script", type="application/ld+json"):
         text = tag.string
         if not text:
             continue
         try:
-            import json
-
             data = json.loads(text)
         except (json.JSONDecodeError, TypeError):
             continue
-        items = data if isinstance(data, list) else [data]
-        for item in items:
-            if not isinstance(item, dict):
+
+        # Flatten: handle arrays, single objects, and @graph wrappers
+        raw_items: list = data if isinstance(data, list) else [data]
+        flat: list[dict] = []
+        for it in raw_items:
+            if not isinstance(it, dict):
                 continue
+            if "@graph" in it:
+                graph = it["@graph"]
+                if isinstance(graph, list):
+                    flat.extend(g for g in graph if isinstance(g, dict))
+            else:
+                flat.append(it)
+
+        for item in flat:
             types = item.get("@type", "")
             if isinstance(types, str):
                 types = [types]
-            if any(
-                t.lower() in ("event", "businessevent", "festival", "saleevent")
-                for t in types
-            ):
-                return item
-            place = item.get("location")
-            if isinstance(place, dict):
-                addr = place.get("address")
-                if isinstance(addr, dict) and addr.get("streetAddress"):
-                    return item
-    return None
+            is_event_type = any(t.lower() in _EVENT_LD_TYPES for t in types)
+            has_addr = _ld_has_address(item)
+
+            if is_event_type and has_addr:
+                candidates.append(item)
+            elif not is_event_type and has_addr:
+                fallbacks.append(item)
+
+    if not candidates:
+        return fallbacks[0] if fallbacks else None
+
+    if len(candidates) == 1:
+        return candidates[0]
+
+    # Multiple events on page — score against the event name we're enriching.
+    # This prevents listing pages (with 20+ events) from returning the wrong ZIP.
+    if event_name:
+        best_score = -1
+        best = candidates[0]
+        for c in candidates:
+            cname = (c.get("name") or "").strip()
+            if not cname:
+                continue
+            score = fuzz.token_set_ratio(event_name, cname)
+            if score > best_score:
+                best_score = score
+                best = c
+        if best_score >= _NAME_MATCH_THRESHOLD:
+            return best
+
+    return candidates[0]
 
 
 def _extract_microdata(soup: BeautifulSoup) -> dict | None:
@@ -175,21 +233,42 @@ def _microdata_to_dict(tag) -> dict:
     return result
 
 
-def _extract_heuristic(text: str) -> dict:
-    result: dict = {}
-    m = _CITY_STATE_ZIP_RE.search(text)
-    if m:
-        result["city"] = m.group(1).strip()
-        result["state"] = m.group(2)
-        result["zip"] = m.group(3)
-    elif not result.get("zip"):
-        zips = _ZIP_RE.findall(text)
-        if zips:
-            result["zip"] = zips[0]
-    addr_m = _ADDR_LINE_RE.search(text)
-    if addr_m:
-        result["streetAddress"] = addr_m.group(1).strip()
-    return result
+def _extract_heuristic(text: str, event_name: str = "") -> dict:
+    """Extract address fields from raw page text.
+
+    When event_name is provided, searches a ±1000-char window around the first
+    occurrence of the event name before falling back to the full page. This
+    prevents picking up ZIP codes from other events on listing pages.
+    """
+    def _scan(t: str) -> dict:
+        r: dict = {}
+        m = _CITY_STATE_ZIP_RE.search(t)
+        if m:
+            r["city"] = m.group(1).strip()
+            r["state"] = m.group(2)
+            r["zip"] = m.group(3)
+        if not r.get("zip"):
+            zips = _ZIP_RE.findall(t)
+            if zips:
+                r["zip"] = zips[0]
+        addr_m = _ADDR_LINE_RE.search(t)
+        if addr_m:
+            r["streetAddress"] = addr_m.group(1).strip()
+        return r
+
+    if event_name:
+        anchor = event_name[:40].lower()
+        idx = text.lower().find(anchor)
+        if idx >= 0:
+            # Addresses almost always follow the event title in structured content.
+            # Anchor at the name position to avoid ZIPs from other events earlier on
+            # the page (listing pages with 20+ events).
+            window = text[idx : idx + 800]
+            result = _scan(window)
+            if result.get("zip") or result.get("city"):
+                return result
+
+    return _scan(text)
 
 
 def _parse_json_ld_address(data: dict) -> dict:
@@ -266,13 +345,14 @@ def _apply_enrichment(event: EventItem, fields: dict) -> bool:
     return updated
 
 
-def _extract_from_soup(soup: BeautifulSoup) -> dict:
+def _extract_from_soup(soup: BeautifulSoup, event_name: str = "") -> dict:
     """Extract address fields from a BeautifulSoup document.
 
     Tries JSON-LD, microdata, and heuristic extraction in order.
-    Returns a dict with address fields if found, or an empty dict.
+    event_name is used to score JSON-LD candidates on listing pages and to
+    anchor the heuristic ZIP search near the relevant event in the page text.
     """
-    ld = _extract_json_ld(soup)
+    ld = _extract_json_ld(soup, event_name=event_name)
     if ld:
         fields = _parse_json_ld_address(ld)
         if fields.get("zip") or fields.get("city"):
@@ -283,13 +363,15 @@ def _extract_from_soup(soup: BeautifulSoup) -> dict:
         if fields.get("zip") or fields.get("city"):
             return fields
     text = soup.get_text(separator=" ", strip=True)
-    fields = _extract_heuristic(text)
+    fields = _extract_heuristic(text, event_name=event_name)
     if fields.get("zip") or fields.get("city"):
         return fields
     return {}
 
 
-def _fetch_and_extract(url: str, timeout: int = _REQUEST_TIMEOUT) -> dict | None:
+def _fetch_and_extract(
+    url: str, timeout: int = _REQUEST_TIMEOUT, event_name: str = ""
+) -> dict | None:
     """Fetch a URL and extract address data from the HTML.
 
     Returns a dict with address fields on success, an empty dict if the page
@@ -313,6 +395,11 @@ def _fetch_and_extract(url: str, timeout: int = _REQUEST_TIMEOUT) -> dict | None
             logger.debug("URL enrich fetch failed for %s", url[:80])
             return None
 
+        # Re-check SSRF after redirect
+        if resp.url != url and _is_blocked_url(resp.url):
+            logger.debug("URL enrich: redirect to blocked URL: %s -> %s", url[:60], resp.url[:60])
+            return None
+
         if resp.status_code >= 400:
             logger.debug("URL enrich HTTP %d for %s", resp.status_code, url[:80])
             return None
@@ -322,9 +409,10 @@ def _fetch_and_extract(url: str, timeout: int = _REQUEST_TIMEOUT) -> dict | None
             return None
         try:
             soup = BeautifulSoup(resp.text, "html.parser")
-        except Exception:
+        except Exception as exc:
+            logger.debug("BeautifulSoup parse error for %s: %s", url[:80], exc)
             return None
-        result = _extract_from_soup(soup)
+        result = _extract_from_soup(soup, event_name=event_name)
         if result:
             logger.debug("URL enrich: address hit for %s", url[:80])
             return result
@@ -333,7 +421,7 @@ def _fetch_and_extract(url: str, timeout: int = _REQUEST_TIMEOUT) -> dict | None
     return None
 
 
-def _render_via_sidecar(url: str) -> dict | None:
+def _render_via_sidecar(url: str, event_name: str = "") -> dict | None:
     """Send a URL to the Playwright sidecar for JS rendering.
 
     Returns a dict with address fields on success, an empty dict if the page
@@ -343,9 +431,7 @@ def _render_via_sidecar(url: str) -> dict | None:
         return None
     if _is_blocked_url(url):
         return None
-    headers = {}
-    if _SIDECAR_API_KEY:
-        headers["Authorization"] = f"Bearer {_SIDECAR_API_KEY}"
+    headers = {"Authorization": f"Bearer {_SIDECAR_API_KEY}"} if _SIDECAR_API_KEY else {}
     try:
         resp = _SESSION.post(
             f"{_SIDECAR_URL.rstrip('/')}/render",
@@ -369,9 +455,10 @@ def _render_via_sidecar(url: str) -> dict | None:
         return {}
     try:
         soup = BeautifulSoup(html, "html.parser")
-    except Exception:
+    except Exception as exc:
+        logger.debug("Sidecar BeautifulSoup parse error for %s: %s", url[:80], exc)
         return None
-    result = _extract_from_soup(soup)
+    result = _extract_from_soup(soup, event_name=event_name)
     if result:
         logger.debug("Sidecar: address hit for %s", url[:80])
         return result
@@ -383,6 +470,10 @@ def _enrich_one(event: EventItem) -> str:
 
     Returns a result tag: "enriched", "no_url", "blocked", "fetch_failed",
     "no_address", "no_field_update", or "sidecar_enriched".
+
+    Sidecar is tried whenever static extraction found no address — this covers
+    both JS-heavy pages (load OK, address rendered by JS) and pages that fail
+    to load at all (SPAs, bot-blocking, etc.).
     """
     urls = []
     if event.primary_url:
@@ -395,61 +486,59 @@ def _enrich_one(event: EventItem) -> str:
     if not urls:
         return "no_url"
 
+    all_blocked = True
     had_fetch_error = False
     had_no_address = False
 
     for url in urls:
-        fields = _fetch_and_extract(url)
+        if _is_blocked_url(url):
+            continue
+        all_blocked = False
+        fields = _fetch_and_extract(url, event_name=event.name)
         if fields is None:
-            if _is_blocked_url(url):
-                return "blocked"
             had_fetch_error = True
             continue
         if not fields.get("zip") and not fields.get("city"):
             had_no_address = True
             continue
         if _apply_enrichment(event, fields):
-            event.sources.append(
-                {
-                    "url": url,
-                    "sourceType": "url_enrich",
-                }
-            )
+            event.sources.append({"url": url, "sourceType": "url_enrich"})
             return "enriched"
         return "no_field_update"
 
-    # Event-level retry: if all URLs had fetch errors (no page loaded at all),
-    # retry the primary URL once with a longer timeout.
+    if all_blocked:
+        return "blocked"
+
+    # Extended retry: if all URLs failed to load (network error), retry the
+    # primary URL once with a longer timeout before escalating to sidecar.
     if had_fetch_error and not had_no_address and event.primary_url:
         fields = _fetch_and_extract(
-            event.primary_url, timeout=_REQUEST_TIMEOUT_EVENT_RETRY
+            event.primary_url,
+            timeout=_REQUEST_TIMEOUT_EVENT_RETRY,
+            event_name=event.name,
         )
         if fields is not None:
-            if not fields.get("zip") and not fields.get("city"):
-                had_no_address = True
-            elif _apply_enrichment(event, fields):
-                event.sources.append(
-                    {
-                        "url": event.primary_url,
-                        "sourceType": "url_enrich",
-                    }
-                )
-                return "enriched"
-            else:
+            if fields.get("zip") or fields.get("city"):
+                if _apply_enrichment(event, fields):
+                    event.sources.append(
+                        {"url": event.primary_url, "sourceType": "url_enrich"}
+                    )
+                    return "enriched"
                 return "no_field_update"
+            had_no_address = True
 
-    # Sidecar fallback: if static fetches all failed, try Playwright rendering.
-    if had_fetch_error and not had_no_address and _SIDECAR_URL and event.primary_url:
-        fields = _render_via_sidecar(event.primary_url)
+    # Sidecar fallback: try when static extraction found no address.
+    # This fires for two distinct cases:
+    #   1. Page loaded but address is JS-rendered (had_no_address=True, had_fetch_error=False)
+    #   2. Page failed to load entirely — may work in a real browser (had_fetch_error=True)
+    if _SIDECAR_URL and event.primary_url and (had_no_address or had_fetch_error):
+        fields = _render_via_sidecar(event.primary_url, event_name=event.name)
         if fields is not None:
             if not fields.get("zip") and not fields.get("city"):
                 return "no_address"
             if _apply_enrichment(event, fields):
                 event.sources.append(
-                    {
-                        "url": event.primary_url,
-                        "sourceType": "url_enrich",
-                    }
+                    {"url": event.primary_url, "sourceType": "url_enrich"}
                 )
                 return "sidecar_enriched"
             return "no_field_update"
