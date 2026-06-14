@@ -843,6 +843,17 @@ city-to-county lookups. Edit here when adding new states or event types.
 | Per-batch Meilisearch error handling | Failed batches are skipped (not abort); they retry on the next pipeline run |
 | Fuzzy dedup safety guard | Events with no year and no county are excluded from fuzzy comparison — prevents spurious cross-state merges of unresolved organics |
 
+### nginx security headers
+
+| Header | Value | What it does |
+|---|---|---|
+| `X-Frame-Options` | `DENY` | Prevents the app from being embedded in any iframe — clickjacking protection |
+| `Content-Security-Policy` | `frame-ancestors 'none'` | CSP equivalent of X-Frame-Options; honoured by modern browsers that ignore XFO |
+| `X-Content-Type-Options` | `nosniff` | Prevents browsers from MIME-sniffing responses away from the declared content type |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | Sends full referrer on same-origin, origin-only on cross-origin HTTPS, nothing on HTTP |
+
+All four headers are set in `nginx.conf` at the `server {}` level with `always` so they apply to all responses including error pages.
+
 ### Frontend security controls
 
 | Control | What it does |
