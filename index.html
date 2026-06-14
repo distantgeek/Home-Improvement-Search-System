@@ -792,6 +792,95 @@
     color: var(--text-dim);
     margin-left: 6px;
   }
+
+  /* ── MOBILE FILTER TOGGLE (hidden on desktop) ── */
+  .mobile-filter-toggle {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-muted);
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 500;
+    padding: 6px 12px;
+    cursor: pointer;
+    transition: all .15s;
+    white-space: nowrap;
+  }
+  .mobile-filter-toggle:hover { border-color: var(--amber); color: var(--amber); }
+  .mobile-filter-toggle.active { border-color: var(--amber); color: var(--amber); background: var(--amber-dim); }
+
+  /* ── SIDEBAR BACKDROP (mobile only) ── */
+  .sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.6);
+    z-index: 49;
+  }
+  .sidebar-backdrop.open { display: block; }
+
+  /* ── MOBILE LAYOUT ── */
+  @media (max-width: 768px) {
+    body { overflow: hidden; }
+
+    .topbar { padding: 0 12px; gap: 8px; }
+    .brand span { display: none; }
+    .data-freshness { padding: 4px 8px; }
+    .freshness-label { display: none; }
+    .status-pill { display: none; }
+    .mobile-filter-toggle { display: flex; }
+
+    .app-body { position: relative; }
+
+    aside.sidebar {
+      position: fixed;
+      top: 52px;
+      left: 0;
+      bottom: 0;
+      width: min(320px, 88vw);
+      z-index: 50;
+      transform: translateX(-100%);
+      transition: transform .25s ease;
+      box-shadow: none;
+    }
+    aside.sidebar.open {
+      transform: translateX(0);
+      box-shadow: 4px 0 24px rgba(0,0,0,.5);
+    }
+
+    main.results-area { width: 100%; }
+
+    .table-wrap { -webkit-overflow-scrolling: touch; }
+
+    /* Larger touch targets */
+    .county-item { padding: 8px 6px; }
+    .type-item   { padding: 8px 6px; }
+    .county-item input[type="checkbox"],
+    .type-item   input[type="checkbox"] {
+      width: 18px; height: 18px; flex-shrink: 0;
+    }
+    .cov-btn     { padding: 8px 4px; font-size: 11px; }
+    .config-btn  { padding: 10px; }
+    .run-btn     { padding: 13px; font-size: 17px; }
+
+    .results-toolbar { padding: 8px 12px; gap: 8px; }
+    .export-btn  { padding: 6px 10px; font-size: 12px; }
+
+    /* Coverage modal → bottom sheet */
+    .modal-overlay.open { align-items: flex-end; }
+    .modal-box {
+      width: 100%;
+      max-width: 100%;
+      max-height: 85vh;
+      border-radius: 16px 16px 0 0;
+    }
+    .modal-body { grid-template-columns: 1fr; }
+    .modal-county-list { grid-template-columns: 1fr 1fr; }
+  }
 </style>
 </head>
 <body>
@@ -805,11 +894,14 @@
       <span class="freshness-count" id="eventCount">—</span>
     </div>
     <div class="status-pill" id="statusPill">READY</div>
+    <button class="mobile-filter-toggle" id="filterToggle" aria-label="Open filters" aria-expanded="false">⚙ Filters</button>
   </div>
 </nav>
 
 <!-- ── APP BODY ── -->
 <div class="app-body">
+
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
   <!-- ── SIDEBAR ── -->
   <aside class="sidebar">
@@ -1137,6 +1229,28 @@ function bindEvents() {
       if (currentResults.length) renderResults(applyFilters(currentResults));
     });
   });
+
+  // Mobile sidebar toggle
+  const sidebar = document.querySelector('aside.sidebar');
+  const backdrop = document.getElementById('sidebarBackdrop');
+  const filterToggle = document.getElementById('filterToggle');
+  function openSidebar() {
+    sidebar.classList.add('open');
+    backdrop.classList.add('open');
+    filterToggle.classList.add('active');
+    filterToggle.setAttribute('aria-expanded', 'true');
+  }
+  function closeSidebar() {
+    sidebar.classList.remove('open');
+    backdrop.classList.remove('open');
+    filterToggle.classList.remove('active');
+    filterToggle.setAttribute('aria-expanded', 'false');
+  }
+  filterToggle.addEventListener('click', () => {
+    sidebar.classList.contains('open') ? closeSidebar() : openSidebar();
+  });
+  backdrop.addEventListener('click', closeSidebar);
+  document.getElementById('runSearchBtn').addEventListener('click', closeSidebar);
 }
 
 // ═══════════════════════════════════════════

@@ -127,7 +127,7 @@ home-improvement-search-system/
 ├── data/
 │   ├── festivalnet/                  # Directory for manual FestivalNet HTML drops
 │   │   └── .gitkeep
-│   ├── zip-county.json              # ZIP → {state, county} (~3,940 entries, VA/MD/PA/DC/NJ/DE)
+│   ├── zip-county.json              # ZIP → {state, county} (~33,642 entries, all 50 states + DC)
 │   └── city-county.json             # "STATE:city" → {county} (~3,822 entries)
 ├── docs/
 │   ├── architecture.md              # Detailed architecture doc (superseded by this file)
@@ -598,6 +598,7 @@ All variables are read by `pipeline/run.py` via `_load_config()` at startup.
 | `DATA_DIR` | No | `../data` (relative to `pipeline/`) | Directory containing `zip-county.json` and `city-county.json` |
 | `PIPELINE_SCHEDULE` | No | `0 3 * * 0` | 5-part cron expression for APScheduler |
 | `DRY_RUN` | No | `false` | Set to `true` to skip all API calls and writes; useful for testing |
+| `SKIP_STARTUP_RUN` | No | `false` | Set to `true` to skip the immediate pipeline run on startup — scheduler still starts; use when redeploying without wanting to trigger a Serper fetch |
 | `NPM_NETWORK_NAME` | Compose only | — | External Docker network name for NPM; used in `docker-compose.yml` |
 
 ---
@@ -610,9 +611,14 @@ Entry point. `_load_config()` reads env vars and validates `MEILI_URL` scheme an
 `MEILI_MASTER_KEY` placeholder at startup — exits with an error if either fails. The
 `run_pipeline()` function orchestrates one full pass: ingest (optional), fetch (Eventbrite,
 then Serper), URL enrichment, enrich, date-filter to current year, exact dedup, fuzzy dedup,
-upsert to SQLite, purge expired, sync to Meilisearch. In long-lived mode, APScheduler wraps `run_pipeline()`
-and runs it once immediately on startup, then on the configured cron. `--dry-run` and
-`--once` flags bypass the scheduler.
+upsert to SQLite, cross-run URL dedup cleanup (removes stale same-URL events from SQLite
+and Meilisearch), purge expired (returns deleted IDs so Meilisearch is also cleaned),
+sync to Meilisearch. In long-lived mode, APScheduler wraps `run_pipeline()` with
+`max_instances=1` (prevents overlapping runs), an `EVENT_JOB_ERROR` listener (logs
+`CRITICAL` on failure), and an `EVENT_JOB_MISSED` listener (logs `WARNING` on misfires).
+Runs once immediately on startup unless `SKIP_STARTUP_RUN=true`. `--dry-run` and `--once`
+flags bypass the scheduler. `FileNotFoundError`/`ValueError` in `--once`/`--dry-run` mode
+exit with code 1 rather than swallowing the exception.
 
 ### `pipeline/fetchers/serper.py`
 
@@ -646,9 +652,22 @@ county resolution pipeline.
 3. **Heuristic regex** — city/state/ZIP patterns in page text (last resort)
 
 **SSRF protection:** `_is_blocked_url` rejects non-HTTPS schemes, private/reserved IP
-ranges (10.x, 172.16-31.x, 192.168.x, 127.x, 169.254.x, ::1, fc00::/7), and
-internal-looking hostnames (localhost, *.local, *.internal, *.test, *.example,
-*.invalid). DNS resolution is checked before the request is made.
+ranges (10.x, 172.16-31.x, 192.168.x, 127.x, 169.254.x, 100.64.0.0/10 [CGNAT],
+0.0.0.0/8, ::1, fc00::/7, fe80::/10 [IPv6 link-local], ::ffff:0:0/96 [IPv4-mapped
+IPv6], ::/128 [unspecified]), and internal-looking hostnames (localhost, *.local,
+*.internal, *.test, *.example, *.invalid). DNS resolution is checked before the request
+is made. `_is_blocked_url` also rejects HTTPS-to-HTTP redirects (redirect URL is
+re-checked).
+
+**Domain blacklist** (`_ENRICH_SKIP_DOMAINS`): URLs whose hostname matches a blocked
+domain are kept in the index but skipped for enrichment entirely. Currently contains
+`facebook.com` — Facebook events require login so fetching is pointless and snippet
+extraction already covers the majority of them. Matched against the parsed hostname
+(including subdomains) to prevent query-parameter false positives.
+
+**Thread safety:** Each worker in the `ThreadPoolExecutor` uses its own
+`requests.Session` via `threading.local()` (`_get_session()`). The previous
+module-level shared session was not thread-safe.
 
 **Field update** (`_apply_enrichment`): only overwrites empty fields so a partial
 web page extraction can't blank fields already populated by higher-priority sources.
@@ -663,11 +682,12 @@ in order; enrichment stops at the first successful extraction.
 
 **Diagnostic logging:** `enrich_from_urls()` logs a breakdown of results by category:
 `enriched` (successfully updated), `no_url` (no URLs to try), `blocked` (SSRF protection),
-`fetch_failed` (HTTP error, timeout, or non-HTML content), `no_address` (page loaded but
-no extractable address), `no_field_update` (address found but all fields already populated).
+`skipped_domain` (domain blacklist hit), `fetch_failed` (HTTP error, timeout, or
+non-HTML content), `no_address` (page loaded but no extractable address),
+`no_field_update` (address found but all fields already populated).
 
-Runs up to 5 concurrent requests (ThreadPoolExecutor). Uses a shared `requests.Session`
-with a custom User-Agent header.
+Runs up to 5 concurrent requests (ThreadPoolExecutor). Uses per-thread
+`requests.Session` instances with a custom User-Agent header.
 
 ### `pipeline/ingest/`
 
@@ -730,6 +750,15 @@ post-enrichment normalization step canonicalizes the county name against `COUNTI
 using case-insensitive matching — this fixes all-caps variants like "ALLEGANY" → "Allegany"
 that can come from URL enrichment or Serper organic data.
 
+**County punctuation normalization** (`_punc_normalize`, `_county_norm`): Tier 2
+regex scan text and the regex patterns themselves are passed through `_punc_normalize`,
+which strips periods and apostrophe variants (ASCII `'`, U+2019 `'`, U+2018 `'`,
+U+02BC `ʼ`) before matching. This allows "St Marys County Fair" to match the canonical
+"St. Mary's County". After a regex match, the stripped form is looked up in the
+per-state `_county_norm` dict (built at init) to recover the canonical name with
+correct punctuation. Bare county names like "St. Mary's" are also indexed under the
+`"+ county"` variant so external data containing "St Marys County" resolves correctly.
+
 ### `pipeline/dedup.py`
 
 Two-pass deduplication. `exact_dedup()` (pass 1) keys on
@@ -748,7 +777,13 @@ no county are skipped from fuzzy comparison to prevent spurious cross-state merg
 `Store` wraps a SQLite connection in WAL mode. `upsert_events()` uses
 `INSERT ... ON CONFLICT(event_id) DO UPDATE` — every upsert resets `synced=0` so the
 sync step picks up refreshed data. `purge_expired()` deletes rows where `end_date` is
-more than 30 days in the past. `get_unsynced()` returns up to 10,000 `synced=0` rows as
+more than 30 days in the past and **returns the list of deleted `event_id`s** so the
+caller can also remove them from Meilisearch (ghost document prevention).
+`url_dedup_cleanup(url_to_winner_id)` removes cross-run URL duplicates: for each
+`primary_url → winner_event_id` pair it deletes any rows with the same URL but a
+different `event_id` (stale events that accumulated when the same event was fetched
+across runs with a slightly different name), and returns the deleted IDs so the caller
+can delete them from Meilisearch. `get_unsynced()` returns up to 10,000 `synced=0` rows as
 dicts. `mark_synced()` sets `synced=1` for a list of `event_id`s. All writes use
 `executemany`; errors roll back and raise `RuntimeError`. The `contact` column is stored
 here but intentionally excluded from Meilisearch documents (see `sync.py`).
@@ -760,8 +795,11 @@ and applies the `_INDEX_SETTINGS` dict on every run. `sync_from_store()` reads u
 rows, converts them to camelCase Meilisearch documents via `_row_to_meili_doc()`, and
 pushes in batches of 100. Each batch waits for task completion; if the task fails or
 times out, `mark_synced` is skipped for that batch and it retries on the next pipeline
-run. The `contact` field is excluded from `_row_to_meili_doc()` to prevent PII reaching
-the search index. Meilisearch document field names are camelCase (`startDate`,
+run. `delete_documents(ids)` deletes specific documents from Meilisearch by `event_id`
+(used by `run_pipeline` after `purge_expired` and `url_dedup_cleanup` to remove ghost
+documents). `clear_index()` deletes all documents from the index (used for full
+resyncs). The `contact` field is excluded from `_row_to_meili_doc()` to prevent PII
+reaching the search index. Meilisearch document field names are camelCase (`startDate`,
 `countyFull`, `sourceType`, etc.) to match the existing frontend JS field names.
 
 ### `pipeline/models.py`
@@ -792,10 +830,13 @@ city-to-county lookups. Edit here when adding new states or event types.
 | Control | What it does |
 |---|---|
 | MEILI_URL scheme validation | Startup rejects any URL not starting with `http://` or `https://` — prevents SSRF via env var injection |
+| URL enrichment domain blacklist | `_ENRICH_SKIP_DOMAINS` skips enrichment for login-walled domains (facebook.com) — events are kept, no fetch attempted |
 | MEILI_MASTER_KEY placeholder check | Startup rejects key containing `"change-me"` — prevents accidental deploy with the example value |
+| URL enrichment SSRF protection | `_is_blocked_url` blocks non-HTTPS, private IPs (RFC 1918, loopback, link-local, CGNAT 100.64.0.0/10), IPv6 reserved ranges (::1, fc00::/7, fe80::/10, ::ffff:0:0/96, ::/128), internal hostnames, and HTTPS-to-HTTP redirects; DNS resolved before fetch |
 | Eventbrite URL validation | `extract_eventbrite_id()` validates scheme (`https` only), host (exact match on `eventbrite.com`/`www.eventbrite.com`), path pattern, and ID format before calling the API — prevents lookalike-host injection and API calls on malformed URLs |
 | Eventbrite response ID check | API response `id` field must match the requested ID; mismatches are logged and the enrichment is skipped — prevents applying data from the wrong event |
 | `contact` PII exclusion | `sync.py._row_to_meili_doc()` omits `contact` — scraped emails/phones stay in SQLite only |
+| Ghost document deletion | `purge_expired()` and `url_dedup_cleanup()` return deleted IDs; `run_pipeline` calls `syncer.delete_documents()` to remove them from Meilisearch — prevents stale documents accumulating in the index across runs |
 | Datasette internal-only network | `hiss-datasette` has no `ports:` mapping and is not on the proxy network — access requires SSH tunnel |
 | Docker log rotation | `json-file` driver with `max-size: 10m` / `max-file: 3` on `hiss-pipeline` and `hiss-meilisearch` |
 | Parameterized SQL | All SQLite queries use `?` placeholders; errors trigger `rollback()` |
