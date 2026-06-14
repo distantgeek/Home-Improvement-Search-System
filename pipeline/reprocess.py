@@ -197,11 +197,15 @@ def main():
 
     purged = store.purge_expired(days=30)
     if purged:
-        logger.info("Purged %d expired events", purged)
+        logger.info("Purged %d expired events", len(purged))
 
     # ── Full Meilisearch re-sync ──────────────────────────────────────────────
     sync = MeilisearchSync(meili_url, meili_master_key)
     sync.configure_index()
+    # Clear the index before resyncing so ghost documents from previous runs
+    # (events that were deleted from SQLite but never removed from Meilisearch)
+    # don't persist alongside the fresh set.
+    sync.clear_index()
 
     # Mark all events as unsynced so sync_from_store picks them up
     store._conn.execute("UPDATE events SET synced = 0")

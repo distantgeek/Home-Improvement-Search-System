@@ -94,6 +94,30 @@ class MeilisearchSync:
                 "search filter/sort behavior may be incorrect until next run"
             )
 
+    def clear_index(self) -> None:
+        """Delete all documents from the index. Used before a full resync."""
+        try:
+            task = self._index.delete_all_documents()
+            self._client.wait_for_task(task.task_uid, timeout_in_ms=30_000)
+            logger.info("Cleared all documents from Meilisearch index '%s'", INDEX_UID)
+        except meilisearch.errors.MeilisearchTimeoutError:
+            logger.warning("Timeout waiting for index clear — proceeding anyway")
+        except meilisearch.errors.MeilisearchApiError as exc:
+            logger.error("Failed to clear Meilisearch index: %s", exc)
+
+    def delete_documents(self, ids: list[str]) -> None:
+        """Delete specific documents from Meilisearch by event_id."""
+        if not ids:
+            return
+        try:
+            task = self._index.delete_documents(ids)
+            self._client.wait_for_task(task.task_uid, timeout_in_ms=30_000)
+            logger.info("Deleted %d documents from Meilisearch", len(ids))
+        except meilisearch.errors.MeilisearchTimeoutError:
+            logger.warning("Timeout deleting %d Meilisearch docs — may retry next run", len(ids))
+        except meilisearch.errors.MeilisearchApiError as exc:
+            logger.error("Failed to delete %d docs from Meilisearch: %s", len(ids), exc)
+
     def sync_from_store(self, store) -> int:
         """Pull synced=0 rows from store, push to Meilisearch, mark synced."""
         unsynced = store.get_unsynced()

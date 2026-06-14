@@ -110,22 +110,70 @@ class Store:
             raise RuntimeError(f"Failed to upsert events: {exc}") from exc
         return len(rows)
 
-    def purge_expired(self, days: int = 30) -> int:
-        """Delete events whose end_date is more than `days` days in the past."""
+    def purge_expired(self, days: int = 30) -> list[str]:
+        """Delete events with end_date older than `days` days.
+
+        Returns the list of deleted event_ids so callers can remove them from
+        external indexes (e.g. Meilisearch) that are not automatically updated.
+        """
         cutoff = (date.today() - timedelta(days=days)).isoformat()
         try:
             cur = self._conn.execute(
-                "DELETE FROM events WHERE end_date IS NOT NULL AND end_date != '' AND end_date < ?",
+                "SELECT event_id FROM events"
+                " WHERE end_date IS NOT NULL AND end_date != '' AND end_date < ?",
                 (cutoff,),
             )
-            self._conn.commit()
+            ids = [row[0] for row in cur.fetchall()]
+            if ids:
+                self._conn.execute(
+                    "DELETE FROM events"
+                    " WHERE end_date IS NOT NULL AND end_date != '' AND end_date < ?",
+                    (cutoff,),
+                )
+                self._conn.commit()
+                logger.info("Purged %d expired events (end_date < %s)", len(ids), cutoff)
+            return ids
         except sqlite3.OperationalError as exc:
             self._conn.rollback()
             raise RuntimeError(f"Failed to purge expired events: {exc}") from exc
-        count = cur.rowcount
-        if count:
-            logger.info("Purged %d expired events (end_date < %s)", count, cutoff)
-        return count
+
+    def url_dedup_cleanup(self, url_to_winner_id: dict[str, str]) -> list[str]:
+        """Delete cross-run URL duplicates from the store.
+
+        For each URL in `url_to_winner_id`, deletes any rows whose primary_url
+        matches but whose event_id differs from the winner. This removes stale
+        events that accumulated across pipeline runs where the same event was
+        fetched with a slightly different name (producing a different dedup_key
+        and event_id) but the same URL.
+
+        Returns the list of deleted event_ids so callers can remove them from
+        Meilisearch.
+        """
+        if not url_to_winner_id:
+            return []
+        deleted: list[str] = []
+        try:
+            for url, winner_id in url_to_winner_id.items():
+                if not url:
+                    continue
+                cur = self._conn.execute(
+                    "SELECT event_id FROM events WHERE primary_url = ? AND event_id != ?",
+                    (url, winner_id),
+                )
+                stale = [row[0] for row in cur.fetchall()]
+                if stale:
+                    self._conn.execute(
+                        "DELETE FROM events WHERE primary_url = ? AND event_id != ?",
+                        (url, winner_id),
+                    )
+                    deleted.extend(stale)
+            if deleted:
+                self._conn.commit()
+                logger.info("URL cross-run dedup: removed %d stale events from DB", len(deleted))
+        except sqlite3.OperationalError as exc:
+            self._conn.rollback()
+            logger.error("URL dedup cleanup failed: %s", exc)
+        return deleted
 
     def get_unsynced(self, limit: int = 10000) -> list[dict]:
         cur = self._conn.execute(

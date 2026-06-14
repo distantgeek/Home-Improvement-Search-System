@@ -207,16 +207,31 @@ def run_pipeline(config: dict, ingest_path: str | None = None) -> None:
         logger.info("[dry-run] Complete — no writes")
         return
 
+    # Build URL → winner event_id map from the final deduplicated event list so
+    # we can delete cross-run URL duplicates from the DB after upserting.
+    url_to_winner = {
+        e.primary_url: e.event_id for e in events if e.primary_url
+    }
+
     # ── Store ────────────────────────────────────────────────────────────────
     store = Store(config["db_path"])
+    syncer = MeilisearchSync(config["meili_url"], config["meili_master_key"])
     try:
         written = store.upsert_events(events)
         logger.info("Upserted %d events to SQLite", written)
-        purged = store.purge_expired(days=30)
-        logger.info("Purged %d expired events", purged)
+
+        # Remove cross-run URL duplicates: events with the same primary_url that
+        # arrived in a previous run with a different name (different event_id).
+        stale_ids = store.url_dedup_cleanup(url_to_winner)
+        if stale_ids:
+            syncer.delete_documents(stale_ids)
+            logger.info("URL cross-run dedup: removed %d stale events", len(stale_ids))
+
+        purged_ids = store.purge_expired(days=30)
+        if purged_ids:
+            syncer.delete_documents(purged_ids)
 
         # ── Sync ─────────────────────────────────────────────────────────────
-        syncer = MeilisearchSync(config["meili_url"], config["meili_master_key"])
         syncer.configure_index()
         synced = syncer.sync_from_store(store)
         logger.info("Synced %d events to Meilisearch", synced)

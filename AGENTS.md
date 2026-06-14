@@ -216,7 +216,7 @@ home-improvement-search-system/
 ### Phase 0 — COMPLETE ✓
 
 All four services deployed and healthy on TrueNAS (`<TRUENAS_IP>`).
-**256/256 tests pass** (`python3 -m pytest pipeline/tests/`).
+**259/259 tests pass** (`python3 -m pytest pipeline/tests/`).
 
 | Service | State |
 |---|---|
@@ -453,7 +453,7 @@ The frontend shows "FestivalNet" in the SOURCE column. Target-state filtering is
 ```bash
 cd /path/to/home-improvement-search-system
 python3 -m pytest pipeline/tests/
-# Expected: 256 passed
+# Expected: 259 passed
 ```
 
 Tests use the `responses` library and `unittest.mock` to intercept HTTP calls — no live
@@ -542,7 +542,7 @@ npm run security:supplychain
 
 # Run pipeline unit tests (requires pipeline dependencies)
 python3 -m pytest pipeline/tests/
-# Expected: 256 passed
+# Expected: 259 passed
 ```
 
 ### Shell Script QA
