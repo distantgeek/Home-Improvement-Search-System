@@ -55,6 +55,7 @@ services:
       MEILI_MASTER_KEY: "${MEILI_MASTER_KEY}"
       DB_PATH: "/data/hiss.db"
       PIPELINE_SCHEDULE: "${PIPELINE_SCHEDULE:-0 3 * * 0}"
+      SKIP_STARTUP_RUN: "${SKIP_STARTUP_RUN:-false}"
     volumes:
       - pipeline_data:/data
       - ./data:/app/data           # Census lookup files + festivalnet/ ingest directory

@@ -13,6 +13,8 @@ Optional:
     DATA_DIR            Census lookup files dir (default: ../data relative to this file)
     PIPELINE_SCHEDULE   Cron expression (default: 0 3 * * 0  = weekly Sunday 3am)
     DRY_RUN             Set to 'true' to skip all API calls and writes
+    SKIP_STARTUP_RUN    Set to 'true' to skip the immediate run on startup (scheduler
+                        only — use when redeploying without triggering a Serper fetch)
 
 CLI flags:
     --once              Run once and exit (no scheduler)
@@ -282,14 +284,20 @@ def main() -> None:
     scheduler.add_job(run_pipeline, trigger, args=[config, None], id="pipeline", max_instances=1)
     logger.info("Scheduler started — cron: %s", config["schedule"])
 
-    # Run once immediately so data is available right after deploy
-    logger.info("Running immediately on startup…")
-    try:
-        run_pipeline(config, ingest_path=None)
-    except (SystemExit, KeyboardInterrupt):
-        raise
-    except Exception:
-        logger.exception("Startup pipeline run failed — scheduler will still start")
+    # Run once immediately so data is available right after deploy.
+    # Set SKIP_STARTUP_RUN=true to suppress this when redeploying without
+    # wanting to trigger a fresh Serper fetch.
+    skip_startup = os.environ.get("SKIP_STARTUP_RUN", "").lower() == "true"
+    if skip_startup:
+        logger.info("SKIP_STARTUP_RUN=true — skipping immediate startup run")
+    else:
+        logger.info("Running immediately on startup…")
+        try:
+            run_pipeline(config, ingest_path=None)
+        except (SystemExit, KeyboardInterrupt):
+            raise
+        except Exception:
+            logger.exception("Startup pipeline run failed — scheduler will still start")
 
     scheduler.start()
 
