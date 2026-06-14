@@ -38,20 +38,14 @@ def main():
     store = Store(db_path)
     enricher = Enricher(data_dir)
 
-    rows = store._conn.execute(
-        "SELECT * FROM events WHERE zip IS NULL OR zip = '' "
-        "OR county IS NULL OR county = '' "
-        "OR city IS NULL OR city = ''"
-    ).fetchall()
-    columns = [
-        desc[0]
-        for desc in store._conn.execute("SELECT * FROM events LIMIT 0").description
-    ]
+    rows = store.get_incomplete()
     logger.info("Events needing enrichment: %d", len(rows))
 
     events = []
-    for row in rows:
-        d = dict(zip(columns, row))
+    for d in rows:
+        addr_full = ", ".join(
+            p for p in [d.get("venue", ""), d.get("city", ""), d.get("state", "")] if p
+        )
         e = EventItem(
             name=d["name"],
             primary_url=d.get("primary_url", ""),
@@ -62,7 +56,7 @@ def main():
             county_full=d.get("county_full", ""),
             zip=d.get("zip", ""),
             event_type=d.get("event_type", ""),
-            addr_full=d.get("addr_full", ""),
+            addr_full=addr_full,
             source_type=d.get("source_type", ""),
             page_score=d.get("page_score", 0),
         )

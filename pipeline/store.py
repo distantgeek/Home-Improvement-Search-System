@@ -146,6 +146,21 @@ class Store:
             logger.error("Failed to mark %d events synced: %s", len(event_ids), exc)
             raise RuntimeError(f"Failed to mark events synced: {exc}") from exc
 
+    def get_all(self) -> list[dict]:
+        """Return all events as dicts."""
+        cur = self._conn.execute("SELECT * FROM events")
+        return [dict(row) for row in cur.fetchall()]
+
+    def get_incomplete(self) -> list[dict]:
+        """Return events missing ZIP, county, or city."""
+        cur = self._conn.execute(
+            "SELECT * FROM events WHERE "
+            "(zip IS NULL OR zip = '') OR "
+            "(county IS NULL OR county = '') OR "
+            "(city IS NULL OR city = '')"
+        )
+        return [dict(row) for row in cur.fetchall()]
+
     def count(self) -> int:
         return self._conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
 

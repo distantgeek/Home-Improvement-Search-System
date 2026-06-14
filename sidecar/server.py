@@ -11,6 +11,7 @@ Authentication: requires X-Sidecar-Token header matching SIDECAR_API_KEY env var
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import logging
 import os
@@ -43,6 +44,8 @@ _BLOCKED_HOST_SUFFIXES = (
 )
 
 _SIDECAR_API_KEY = os.environ.get("SIDECAR_API_KEY", "")
+if not _SIDECAR_API_KEY:
+    raise RuntimeError("SIDECAR_API_KEY environment variable must be set")
 _RENDER_TIMEOUT = int(os.environ.get("SIDECAR_RENDER_TIMEOUT", "25") or "25")
 _MAX_CONTENT_LENGTH = 5 * 1024 * 1024
 
@@ -123,8 +126,6 @@ async def lifespan(app: FastAPI):
     await pw.stop()
     logger.info("Playwright browser closed")
 
-
-import asyncio
 
 app = FastAPI(title="HISS Playwright Sidecar", lifespan=lifespan)
 

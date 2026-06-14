@@ -40,6 +40,11 @@ logger = logging.getLogger(__name__)
 
 
 def _row_to_event(row: dict) -> EventItem:
+    # addr_full is transient — never persisted. Reconstruct from stored fields
+    # so that Tier 2/3 enrichment (county scan, city lookup) has address context.
+    addr_full = ", ".join(
+        p for p in [row.get("venue", ""), row.get("city", ""), row.get("state", "")] if p
+    )
     return EventItem(
         event_id=row["event_id"],
         dedup_key=row["dedup_key"],
@@ -62,7 +67,7 @@ def _row_to_event(row: dict) -> EventItem:
         page_score=row.get("page_score", 0) or 0,
         fetched_at=row.get("fetched_at", ""),
         synced=row.get("synced", 0),
-        addr_full=row.get("addr_full", ""),
+        addr_full=addr_full,
     )
 
 
@@ -81,17 +86,10 @@ def main():
     store = Store(db_path)
     enricher = Enricher(data_dir)
 
-    columns = [
-        desc[0]
-        for desc in store._conn.execute("SELECT * FROM events LIMIT 0").description
-    ]
-    rows = store._conn.execute("SELECT * FROM events").fetchall()
+    rows = store.get_all()
     logger.info("Loaded %d events from SQLite", len(rows))
 
-    events = []
-    for row in rows:
-        d = dict(zip(columns, row))
-        events.append(_row_to_event(d))
+    events = [_row_to_event(d) for d in rows]
 
     # ── Date extraction from event names ──────────────────────────────────────
     # Re-run the name-based date extraction for events with empty start_date.

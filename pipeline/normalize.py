@@ -466,8 +466,8 @@ def normalize_event(
                 break
         if not resolved_state:
             addr_lower = addr_full.lower()
-            for name, abbr in _STATE_NAME_TO_ABBR.items():
-                if name in addr_lower:
+            for state_name, abbr in _STATE_NAME_TO_ABBR.items():
+                if state_name in addr_lower:
                     resolved_state = abbr
                     break
 

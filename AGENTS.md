@@ -453,7 +453,7 @@ The frontend shows "FestivalNet" in the SOURCE column. Target-state filtering is
 ```bash
 cd /path/to/home-improvement-search-system
 python3 -m pytest pipeline/tests/
-# Expected: 198 passed
+# Expected: 241 passed
 ```
 
 Tests use the `responses` library and `unittest.mock` to intercept HTTP calls — no live
@@ -542,7 +542,7 @@ npm run security:supplychain
 
 # Run pipeline unit tests (requires pipeline dependencies)
 python3 -m pytest pipeline/tests/
-# Expected: 198 passed
+# Expected: 241 passed
 ```
 
 ### Shell Script QA

@@ -239,13 +239,16 @@ def main() -> None:
         else:
             args.append(arg)
 
-    once = "--once" in args or "--dry-run" in args or config["dry_run"]
+    if "--dry-run" in args:
+        config["dry_run"] = True
+    once = "--once" in args or config["dry_run"]
     if once:
         run_pipeline(config, ingest_path=ingest_path)
         return
 
     from apscheduler.schedulers.blocking import BlockingScheduler
     from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_MISSED
 
     parts = config["schedule"].split()
     if len(parts) != 5:
@@ -263,8 +266,20 @@ def main() -> None:
         logger.error("Invalid PIPELINE_SCHEDULE '%s': %s", config["schedule"], exc)
         sys.exit(1)
 
+    def _job_error_listener(event):
+        logger.critical(
+            "Scheduled pipeline run FAILED — index may be stale: %s",
+            event.exception,
+            exc_info=event.traceback,
+        )
+
+    def _job_missed_listener(event):
+        logger.warning("Scheduled pipeline run missed (misfire_grace_time exceeded)")
+
     scheduler = BlockingScheduler()
-    scheduler.add_job(run_pipeline, trigger, args=[config, None])
+    scheduler.add_listener(_job_error_listener, EVENT_JOB_ERROR)
+    scheduler.add_listener(_job_missed_listener, EVENT_JOB_MISSED)
+    scheduler.add_job(run_pipeline, trigger, args=[config, None], id="pipeline", max_instances=1)
     logger.info("Scheduler started — cron: %s", config["schedule"])
 
     # Run once immediately so data is available right after deploy
