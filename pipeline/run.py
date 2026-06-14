@@ -245,7 +245,11 @@ def main() -> None:
         config["dry_run"] = True
     once = "--once" in args or config["dry_run"]
     if once:
-        run_pipeline(config, ingest_path=ingest_path)
+        try:
+            run_pipeline(config, ingest_path=ingest_path)
+        except (FileNotFoundError, ValueError) as exc:
+            logger.error("Pipeline aborted: %s", exc)
+            sys.exit(1)
         return
 
     from apscheduler.schedulers.blocking import BlockingScheduler

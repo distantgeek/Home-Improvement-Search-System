@@ -276,10 +276,10 @@ def test_ingest_file_json(tmp_path):
 def test_ingest_file_unsupported_extension(tmp_path):
     path = tmp_path / "test.xml"
     path.write_text("<xml></xml>")
-    with pytest.raises(SystemExit):
+    with pytest.raises(ValueError, match="Unsupported file extension"):
         ingest_file(str(path))
 
 
 def test_ingest_file_not_found():
-    with pytest.raises(SystemExit):
+    with pytest.raises(FileNotFoundError):
         ingest_file("/nonexistent/path.html")

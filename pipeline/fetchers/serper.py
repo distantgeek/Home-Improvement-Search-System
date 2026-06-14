@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 
 SERPER_URL = "https://google.serper.dev/search"
 _INTER_QUERY_DELAY = 0.4   # seconds between successful requests
-_RATE_LIMIT_BACKOFF = 30   # seconds to wait on HTTP 429
+_RATE_LIMIT_BACKOFF = 30   # base seconds to wait on HTTP 429 (doubles each retry)
+_MAX_RETRIES = 3           # maximum 429 retries per query
 
 
 def _county_for_query(county: str) -> str:
@@ -146,22 +147,25 @@ def fetch_all(
     events: list[EventItem] = []
     with requests.Session() as session:
         for idx, query in enumerate(queries):
-            retried = False
+            retries = 0
             while True:
                 try:
                     raw_events = _call_serper(api_key, query, session)
                     break
                 except requests.HTTPError as exc:
                     status = exc.response.status_code if exc.response is not None else 0
-                    if status == 429 and not retried:
-                        retried = True
+                    if status == 429 and retries < _MAX_RETRIES:
+                        wait = _RATE_LIMIT_BACKOFF * (2 ** retries)
+                        retries += 1
                         logger.warning(
-                            "Rate limited (query %d/%d) — waiting %ds",
+                            "Rate limited (query %d/%d, attempt %d/%d) — waiting %ds",
                             idx + 1,
                             len(queries),
-                            _RATE_LIMIT_BACKOFF,
+                            retries,
+                            _MAX_RETRIES,
+                            wait,
                         )
-                        time.sleep(_RATE_LIMIT_BACKOFF)
+                        time.sleep(wait)
                         continue
                     logger.error("Serper HTTP %d on query '%s'", status, query)
                     raw_events = []

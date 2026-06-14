@@ -447,7 +447,8 @@ class TestFetchAndExtractRetry:
                 raise requests.ConnectionError("timeout")
             return mock_resp
 
-        with patch("pipeline.fetchers.url_enrich._SESSION") as mock_session:
+        mock_session = MagicMock()
+        with patch("pipeline.fetchers.url_enrich._get_session", return_value=mock_session):
             mock_session.get.side_effect = side_effect
             result = _fetch_and_extract(target_url)
         assert result is not None
@@ -458,7 +459,8 @@ class TestFetchAndExtractRetry:
         """Both attempts fail — returns None."""
         from pipeline.fetchers.url_enrich import _fetch_and_extract
 
-        with patch("pipeline.fetchers.url_enrich._SESSION") as mock_session:
+        mock_session = MagicMock()
+        with patch("pipeline.fetchers.url_enrich._get_session", return_value=mock_session):
             mock_session.get.side_effect = requests.ConnectionError("timeout")
             result = _fetch_and_extract("https://www.example.com/events/home-show")
         assert result is None
@@ -518,7 +520,8 @@ class TestEnrichOneEventRetry:
                 raise requests.ConnectionError("timeout")
             return mock_resp
 
-        with patch("pipeline.fetchers.url_enrich._SESSION") as mock_session:
+        mock_session = MagicMock()
+        with patch("pipeline.fetchers.url_enrich._get_session", return_value=mock_session):
             mock_session.get.side_effect = side_effect
             event = _make_event(zip_code="", city="", county="")
             count = enrich_from_urls([event])
@@ -548,7 +551,8 @@ class TestEnrichOneEventRetry:
 
     def test_event_retry_also_fails(self):
         """Both initial fetch and event-level retry fail — returns fetch_failed."""
-        with patch("pipeline.fetchers.url_enrich._SESSION") as mock_session:
+        mock_session = MagicMock()
+        with patch("pipeline.fetchers.url_enrich._get_session", return_value=mock_session):
             mock_session.get.side_effect = requests.ConnectionError("timeout")
             event = _make_event(zip_code="", city="", county="")
             count = enrich_from_urls([event])
@@ -574,7 +578,8 @@ class TestRenderViaSidecar:
     def test_returns_none_on_connection_error(self):
         """Sidecar unreachable — returns None."""
         with patch("pipeline.fetchers.url_enrich._SIDECAR_URL", "http://sidecar:8000"):
-            with patch("pipeline.fetchers.url_enrich._SESSION") as mock_session:
+            mock_session = MagicMock()
+            with patch("pipeline.fetchers.url_enrich._get_session", return_value=mock_session):
                 mock_session.post.side_effect = requests.ConnectionError("refused")
                 result = _render_via_sidecar("https://www.example.com/events/home-show")
         assert result is None
@@ -582,7 +587,8 @@ class TestRenderViaSidecar:
     def test_returns_none_on_sidecar_error(self):
         """Sidecar returns 502 — returns None."""
         with patch("pipeline.fetchers.url_enrich._SIDECAR_URL", "http://sidecar:8000"):
-            with patch("pipeline.fetchers.url_enrich._SESSION") as mock_session:
+            mock_session = MagicMock()
+            with patch("pipeline.fetchers.url_enrich._get_session", return_value=mock_session):
                 mock_resp = MagicMock()
                 mock_resp.status_code = 502
                 mock_resp.json.return_value = {"error": "Failed to load page"}
@@ -601,7 +607,8 @@ class TestRenderViaSidecar:
             }
         )
         with patch("pipeline.fetchers.url_enrich._SIDECAR_URL", "http://sidecar:8000"):
-            with patch("pipeline.fetchers.url_enrich._SESSION") as mock_session:
+            mock_session = MagicMock()
+            with patch("pipeline.fetchers.url_enrich._get_session", return_value=mock_session):
                 mock_resp = MagicMock()
                 mock_resp.status_code = 200
                 mock_resp.json.return_value = {
@@ -619,7 +626,8 @@ class TestRenderViaSidecar:
         """Sidecar returns HTML but no address data — returns empty dict."""
         html = "<html><body>Just a page with no address</body></html>"
         with patch("pipeline.fetchers.url_enrich._SIDECAR_URL", "http://sidecar:8000"):
-            with patch("pipeline.fetchers.url_enrich._SESSION") as mock_session:
+            mock_session = MagicMock()
+            with patch("pipeline.fetchers.url_enrich._get_session", return_value=mock_session):
                 mock_resp = MagicMock()
                 mock_resp.status_code = 200
                 mock_resp.json.return_value = {
@@ -658,7 +666,8 @@ class TestEnrichOneSidecar:
             call_count += 1
             raise requests.ConnectionError("timeout")
 
-        with patch("pipeline.fetchers.url_enrich._SESSION") as mock_session:
+        mock_session = MagicMock()
+        with patch("pipeline.fetchers.url_enrich._get_session", return_value=mock_session):
             mock_session.get.side_effect = get_side_effect
             mock_session.post.return_value = mock_resp
             with patch(
@@ -696,7 +705,8 @@ class TestEnrichOneSidecar:
         }
         event = _make_event(zip_code="", city="", county="")
         with patch("pipeline.fetchers.url_enrich._SIDECAR_URL", "http://sidecar:8000"):
-            with patch("pipeline.fetchers.url_enrich._SESSION") as mock_session:
+            mock_session = MagicMock()
+            with patch("pipeline.fetchers.url_enrich._get_session", return_value=mock_session):
                 mock_session.get.side_effect = lambda *a, **kw: responses_lib.calls and MagicMock(
                     status_code=200,
                     text="<html><body>No address data in static HTML</body></html>",

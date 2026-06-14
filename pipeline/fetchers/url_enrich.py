@@ -24,6 +24,8 @@ import socket
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 
+import threading
+
 import requests
 from bs4 import BeautifulSoup
 from rapidfuzz import fuzz
@@ -82,15 +84,23 @@ _ADDR_LINE_RE = re.compile(
     re.IGNORECASE,
 )
 
-_SESSION = requests.Session()
-_SESSION.headers.update(
-    {
-        "User-Agent": (
-            "HISS-Pipeline/1.0 (+https://github.com/distantgeek/home-improvement-search-system)"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    }
-)
+_SESSION_HEADERS = {
+    "User-Agent": (
+        "HISS-Pipeline/1.0 (+https://github.com/distantgeek/home-improvement-search-system)"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
+_thread_local = threading.local()
+
+
+def _get_session() -> requests.Session:
+    """Return a per-thread requests.Session. Session is not thread-safe; each
+    worker in the ThreadPoolExecutor must own its own instance."""
+    if not hasattr(_thread_local, "session"):
+        s = requests.Session()
+        s.headers.update(_SESSION_HEADERS)
+        _thread_local.session = s
+    return _thread_local.session
 
 
 def _is_private_ip(hostname: str) -> bool:
@@ -392,7 +402,7 @@ def _fetch_and_extract(
     for attempt in range(2):
         current_timeout = timeout if attempt == 0 else _REQUEST_TIMEOUT_RETRY
         try:
-            resp = _SESSION.get(url, timeout=current_timeout, allow_redirects=True)
+            resp = _get_session().get(url, timeout=current_timeout, allow_redirects=True)
         except requests.RequestException:
             if attempt == 0:
                 logger.debug("URL enrich retrying %s with longer timeout", url[:60])
@@ -438,7 +448,7 @@ def _render_via_sidecar(url: str, event_name: str = "") -> dict | None:
         return None
     headers = {"Authorization": f"Bearer {_SIDECAR_API_KEY}"} if _SIDECAR_API_KEY else {}
     try:
-        resp = _SESSION.post(
+        resp = _get_session().post(
             f"{_SIDECAR_URL.rstrip('/')}/render",
             json={"url": url, "timeout": _SIDECAR_TIMEOUT},
             headers=headers,

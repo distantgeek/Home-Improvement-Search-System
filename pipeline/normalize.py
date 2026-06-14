@@ -100,7 +100,7 @@ ORGANIC_DATE_RE = re.compile(
     r"\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May"
     r"|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t|tember)?"
     r"|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?"
-    r"\s+\d{1,2}(?:\s*[-–]\s*\d{1,2})?,?\s*202\d",
+    r"\s+\d{1,2}(?:\s*[-–]\s*\d{1,2})?,?\s*20[2-9]\d",
     re.IGNORECASE,
 )
 _NAME_DATE_RE = re.compile(
@@ -110,20 +110,20 @@ _NAME_DATE_RE = re.compile(
     r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May"
     r"|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t|tember)?"
     r"|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?"
-    r"\s+\d{1,2}(?:st|nd|rd|th)?\s*(?:[-–&]\s*\d{1,2}(?:st|nd|rd|th)?)?,?\s*202\d"
+    r"\s+\d{1,2}(?:st|nd|rd|th)?\s*(?:[-–&]\s*\d{1,2}(?:st|nd|rd|th)?)?,?\s*20[2-9]\d"
     r"|"
     # "Month Year" e.g. "June 2026"
     r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May"
     r"|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t|tember)?"
     r"|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?"
-    r"\s+202\d"
+    r"\s+20[2-9]\d"
     r"|"
     # "Day Month Year" e.g. "10th Jan, 2026"
     r"\d{1,2}(?:st|nd|rd|th)?\s+"
     r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May"
     r"|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?"
     r"|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?"
-    r",?\s*202\d"
+    r",?\s*20[2-9]\d"
     r")",
     re.IGNORECASE,
 )
@@ -143,7 +143,7 @@ SKIP_DOMAIN_RE = re.compile(
     r"|tiktok\.com|pinterest\.com|linkedin\.com)\b"
 )
 _RANGE_SPLIT_RE = re.compile(r"\s*[–\-]\s*")
-_YEAR_IN_RANGE_RE = re.compile(r"\b(202\d)\b")
+_YEAR_IN_RANGE_RE = re.compile(r"\b(20[2-9]\d)\b")
 _RANGE_END_RE = re.compile(r"[–\-]\s*(?:(\w+)\s+)?(\d+)(?:,\s*(\d{4}))?")
 _COUNTY_FAIR_RE = re.compile(r"\b\w+ county fair\b")
 

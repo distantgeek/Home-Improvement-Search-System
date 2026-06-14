@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -29,14 +28,12 @@ _EXT_MAP: dict[str, str] = {
 def _resolve_path(path: str) -> Path:
     p = Path(path)
     if not p.exists():
-        logger.error("Ingest file not found: %s", p)
-        sys.exit(1)
+        raise FileNotFoundError(f"Ingest file not found: {p}")
     if p.is_dir():
         files = sorted(p.glob("*"), key=lambda x: x.name)
         html_files = [f for f in files if f.suffix.lower() in (".html", ".htm")]
         if not html_files:
-            logger.error("No HTML/CSV/JSON files found in directory: %s", p)
-            sys.exit(1)
+            raise FileNotFoundError(f"No HTML/CSV/JSON files found in directory: {p}")
         return html_files[0]
     return p
 
@@ -49,12 +46,9 @@ def ingest_file(path: str) -> list[EventItem]:
     handler_name = _EXT_MAP.get(ext)
     if handler_name is None:
         supported = ", ".join(_EXT_MAP.keys())
-        logger.error(
-            "Unsupported file extension '%s' — supported: %s",
-            ext,
-            supported,
+        raise ValueError(
+            f"Unsupported file extension '{ext}' — supported: {supported}"
         )
-        sys.exit(1)
 
     logger.info("Ingesting %s (%s format)…", resolved.name, handler_name)
 
@@ -71,8 +65,7 @@ def ingest_file(path: str) -> list[EventItem]:
 
         events = parse_json(resolved)
     else:
-        logger.error("Unknown handler: %s", handler_name)
-        sys.exit(1)
+        raise RuntimeError(f"Unknown handler: {handler_name}")
 
     if not events:
         logger.warning("No events extracted from %s", resolved.name)
