@@ -1234,17 +1234,20 @@ function bindEvents() {
   const sidebar = document.querySelector('aside.sidebar');
   const backdrop = document.getElementById('sidebarBackdrop');
   const filterToggle = document.getElementById('filterToggle');
+  if (!sidebar || !backdrop || !filterToggle) return;
   function openSidebar() {
     sidebar.classList.add('open');
     backdrop.classList.add('open');
     filterToggle.classList.add('active');
     filterToggle.setAttribute('aria-expanded', 'true');
+    filterToggle.setAttribute('aria-label', 'Close filters');
   }
   function closeSidebar() {
     sidebar.classList.remove('open');
     backdrop.classList.remove('open');
     filterToggle.classList.remove('active');
     filterToggle.setAttribute('aria-expanded', 'false');
+    filterToggle.setAttribute('aria-label', 'Open filters');
   }
   filterToggle.addEventListener('click', () => {
     sidebar.classList.contains('open') ? closeSidebar() : openSidebar();
