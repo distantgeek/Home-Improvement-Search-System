@@ -103,6 +103,13 @@ def _get_session() -> requests.Session:
     return _thread_local.session
 
 
+# Domains where we keep the event in the index but skip URL enrichment entirely.
+# Facebook events require login for their pages; snippet extraction in normalize.py
+# already provides county/city data for ~91% of Facebook events, so fetching the
+# page would waste budget and return only a redirect to a login wall.
+_ENRICH_SKIP_RE = re.compile(r"\b(facebook\.com)\b")
+
+
 def _is_private_ip(hostname: str) -> bool:
     try:
         addr_info = socket.getaddrinfo(
@@ -483,13 +490,16 @@ def _render_via_sidecar(url: str, event_name: str = "") -> dict | None:
 def _enrich_one(event: EventItem) -> str:
     """Try to enrich a single event from its URLs.
 
-    Returns a result tag: "enriched", "no_url", "blocked", "fetch_failed",
-    "no_address", "no_field_update", or "sidecar_enriched".
+    Returns a result tag: "enriched", "no_url", "blocked", "domain_skip",
+    "fetch_failed", "no_address", "no_field_update", or "sidecar_enriched".
 
     Sidecar is tried whenever static extraction found no address — this covers
     both JS-heavy pages (load OK, address rendered by JS) and pages that fail
     to load at all (SPAs, bot-blocking, etc.).
     """
+    if event.primary_url and _ENRICH_SKIP_RE.search(event.primary_url):
+        return "domain_skip"
+
     urls = []
     if event.primary_url:
         urls.append(event.primary_url)
@@ -581,6 +591,7 @@ def enrich_from_urls(
         "enriched": 0,
         "no_url": 0,
         "blocked": 0,
+        "domain_skip": 0,
         "fetch_failed": 0,
         "no_address": 0,
         "no_field_update": 0,
@@ -598,16 +609,17 @@ def enrich_from_urls(
                 counters["fetch_failed"] = counters.get("fetch_failed", 0) + 1
 
     logger.info(
-        "URL enrich results: %d enriched, %d no_url, %d blocked, "
-        "%d fetch_failed, %d no_address, %d no_field_update, "
-        "%d sidecar_enriched (of %d candidates)",
+        "URL enrich results: %d enriched, %d sidecar_enriched, "
+        "%d domain_skip, %d no_url, %d blocked, "
+        "%d fetch_failed, %d no_address, %d no_field_update (of %d candidates)",
         counters["enriched"],
+        counters["sidecar_enriched"],
+        counters["domain_skip"],
         counters["no_url"],
         counters["blocked"],
         counters["fetch_failed"],
         counters["no_address"],
         counters["no_field_update"],
-        counters.get("sidecar_enriched", 0),
         len(candidates),
     )
     return counters["enriched"] + counters.get("sidecar_enriched", 0)

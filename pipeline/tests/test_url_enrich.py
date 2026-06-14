@@ -9,6 +9,8 @@ import responses as responses_lib
 
 from pipeline.fetchers.url_enrich import (
     _CITY_STATE_ZIP_RE,
+    _ENRICH_SKIP_RE,
+    _enrich_one,
     _extract_heuristic,
     _is_blocked_url,
     _parse_json_ld_address,
@@ -81,6 +83,34 @@ def _html_with_heuristic_address() -> str:
 <h1>Home Show</h1>
 <p>Join us at the Frederick Fairgrounds, 797 E Patrick St, Frederick, MD 21702</p>
 </body></html>"""
+
+
+# ── Domain-based enrichment skip ─────────────────────────────────────────────
+
+
+class TestEnrichSkipDomain:
+    def test_facebook_returns_domain_skip(self):
+        event = _make_event(
+            name="St Mary's County Home Show",
+            primary_url="https://www.facebook.com/events/1234567890",
+        )
+        result = _enrich_one(event)
+        assert result == "domain_skip"
+
+    def test_facebook_mobile_url_returns_domain_skip(self):
+        event = _make_event(
+            primary_url="https://m.facebook.com/events/987654321",
+        )
+        result = _enrich_one(event)
+        assert result == "domain_skip"
+
+    def test_enrich_skip_re_matches_facebook(self):
+        assert _ENRICH_SKIP_RE.search("https://www.facebook.com/events/123")
+        assert _ENRICH_SKIP_RE.search("https://m.facebook.com/groups/county-fairs")
+
+    def test_enrich_skip_re_does_not_match_legitimate_domains(self):
+        assert not _ENRICH_SKIP_RE.search("https://www.charlescountyfair.com/")
+        assert not _ENRICH_SKIP_RE.search("https://eventbrite.com/e/county-fair-123")
 
 
 # ── SSRF protection ──────────────────────────────────────────────────────────

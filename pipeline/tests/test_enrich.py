@@ -225,3 +225,37 @@ class TestEnricher:
         )
         enriched = enricher.enrich(event)
         assert enriched.state == "MD"
+
+    # ── County punctuation normalization (tier 2) ─────────────────────────────
+
+    def test_tier2_county_punc_stripped_in_scan(self, enricher):
+        # "St Marys County" (no period, no apostrophe) in the address should still
+        # match the canonical "St. Mary's County" in the COUNTIES dict.
+        event = EventItem(
+            addr_full="St Marys County Fairgrounds, Leonardtown, MD",
+            name="St Marys County Fair",
+            state="MD",
+        )
+        enriched = enricher.enrich(event)
+        assert enriched.county == "St. Mary's"
+        assert "County" in enriched.county_full
+
+    def test_tier2_prince_georges_stripped(self, enricher):
+        # "Prince Georges County" (no apostrophe) matches "Prince George's County"
+        event = EventItem(
+            addr_full="Prince Georges County Recreation, Upper Marlboro, MD",
+            name="Prince Georges County Home Expo",
+            state="MD",
+        )
+        enriched = enricher.enrich(event)
+        assert enriched.county == "Prince George's"
+
+    def test_post_enrichment_punc_normalize(self, enricher):
+        # If external data sets county to "St Marys County", normalize to canonical.
+        event = EventItem(
+            state="MD",
+            county="St Marys County",
+            addr_full="Leonardtown, MD",
+        )
+        enriched = enricher.enrich(event)
+        assert enriched.county == "St. Mary's"

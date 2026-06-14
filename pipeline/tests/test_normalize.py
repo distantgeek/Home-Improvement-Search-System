@@ -113,6 +113,42 @@ class TestOrganicsToEvents:
         urls = [r["link"] for r in results]
         assert not any("wikipedia.org" in u for u in urls)
 
+    def test_filters_noise_aggregator_domains(self):
+        noise_urls = [
+            "https://www.yelp.com/events/frederick-home-show",
+            "https://reddit.com/r/Maryland/comments/fair2026",
+            "https://www.seatgeek.com/home-show-tickets",
+            "https://bandsintown.com/e/county-fair",
+            "https://www.etix.com/ticket/v/fair-2026",
+            "https://10times.com/home-expo-md",
+            "https://www.mapquest.com/events/123",
+            "https://open.spotify.com/show/county-fair",
+        ]
+        organics = [
+            {
+                "title": f"Frederick County Home Show 2026 - {domain}",
+                "snippet": "Annual home show in Frederick County, MD, July 2026",
+                "link": url,
+            }
+            for domain, url in [
+                (u.split("/")[2], u) for u in noise_urls
+            ]
+        ]
+        results = organics_to_events(organics)
+        assert results == [], f"Expected all noise domains filtered, got: {results}"
+
+    def test_facebook_not_filtered_by_skip_domain(self):
+        # Facebook stays in the pipeline (enrichment is skipped, not ingestion).
+        organics = [
+            {
+                "title": "Frederick County Home Show 2026",
+                "snippet": "Annual home show in Frederick County, MD · July 5-7, 2026",
+                "link": "https://www.facebook.com/events/123456789",
+            }
+        ]
+        results = organics_to_events(organics)
+        assert len(results) == 1, "Facebook events should pass through to the pipeline"
+
     def test_filters_non_event_organics(self, serper_organic_payload):
         organics = serper_organic_payload["organic"]
         results = organics_to_events(organics)

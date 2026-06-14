@@ -15,6 +15,12 @@ logger = logging.getLogger(__name__)
 _SUFFIX_RE = re.compile(
     r"\s+(County|Borough|Township|Parish|District)\s*$", re.IGNORECASE
 )
+_PUNC_RE = re.compile(r"[.'']")  # ASCII period, ASCII apostrophe, Unicode right single quote
+
+
+def _punc_normalize(s: str) -> str:
+    """Strip periods and apostrophes so 'St Marys' matches 'St. Mary's County'."""
+    return _PUNC_RE.sub("", s)
 _CITY_SUFFIX_RE = re.compile(r"\s+city\s*$", re.IGNORECASE)
 _STATE_ZIP_RE = re.compile(r",?\s*[A-Z]{2}\s*\d{5}(-\d{4})?\s*$")
 _TRAILING_COMMA_RE = re.compile(r",\s*$")
@@ -67,17 +73,44 @@ class Enricher:
                 "Run scripts/build-zip-county.sh to generate it."
             ) from None
 
+        # Build per-state map of normalized county name → canonical county name.
+        # Used by tier 2 to convert the punctuation-stripped regex match back to
+        # the canonical form (e.g. "st marys county" → "St. Mary's County").
+        # Also maps the "+ county" variant for bare names (COUNTIES stores "St. Mary's"
+        # not "St. Mary's County") so external data like "St Marys County" resolves.
+        _suffix_check = re.compile(r"\b(county|city|borough|parish)\b", re.IGNORECASE)
+        self._county_norm: dict[str, dict[str, str]] = {}
+        for state, counties in COUNTIES.items():
+            state_map: dict[str, str] = {}
+            for c in counties:
+                norm = _punc_normalize(c).lower()
+                if norm not in state_map:
+                    state_map[norm] = c
+                # For bare names like "St. Mary's", also map "st marys county" so
+                # externally-supplied values with suffix ("St Marys County") resolve.
+                if not _suffix_check.search(norm):
+                    norm_county = norm + " county"
+                    if norm_county not in state_map:
+                        state_map[norm_county] = c
+            self._county_norm[state] = state_map
+
         self._county_re = self._build_county_re()
 
     def _build_county_re(self) -> re.Pattern:
-        """Build a single regex matching any known county name (longest first)."""
+        """Build a regex matching any known county name, punctuation-normalized.
+
+        Patterns are built from normalized names (periods and apostrophes stripped)
+        so the regex is applied against normalized scan text. Deduplication is also
+        done on the normalized form to avoid conflicting alternates.
+        """
         seen: set[str] = set()
         unique: list[str] = []
         all_counties = [c for counties in COUNTIES.values() for c in counties]
         for county in sorted(all_counties, key=len, reverse=True):
-            if county.lower() not in seen:
-                seen.add(county.lower())
-                unique.append(re.escape(county))
+            norm = _punc_normalize(county)
+            if norm.lower() not in seen:
+                seen.add(norm.lower())
+                unique.append(re.escape(norm))
         pattern = r"\b(" + "|".join(unique) + r")\b"
         return re.compile(pattern, re.IGNORECASE)
 
@@ -143,31 +176,31 @@ class Enricher:
             event.state = state
 
         # ── Tier 2: Scan address/venue/title for known county names ──────────
+        # Scan text is punctuation-normalized (periods/apostrophes stripped) so
+        # "St Marys County Fair" matches the canonical "St. Mary's County".
         if not event.county and addr_full:
-            scan = f"{addr_full} {event.venue} {event.name}"
+            scan = _punc_normalize(f"{addr_full} {event.venue} {event.name}")
             m = self._county_re.search(scan)
             if m:
-                matched = m.group(1)
+                matched_norm = m.group(1).lower()
                 if event.state:
                     candidate_states = [event.state]
                 else:
                     candidate_states = list(STATE_ORDER)
                 for state_code in candidate_states:
-                    for c in COUNTIES[state_code]:
-                        if c.lower() == matched.lower():
-                            event.county = c
-                            if re.search(
-                                r"\b(?:County|City|Borough)\b",
-                                c,
-                                re.IGNORECASE,
-                            ):
-                                event.county_full = c
-                            else:
-                                event.county_full = c + " County"
-                            if not event.state:
-                                event.state = state_code
-                            break
-                    if event.county:
+                    canonical = self._county_norm.get(state_code, {}).get(matched_norm)
+                    if canonical:
+                        event.county = canonical
+                        if re.search(
+                            r"\b(?:County|City|Borough)\b",
+                            canonical,
+                            re.IGNORECASE,
+                        ):
+                            event.county_full = canonical
+                        else:
+                            event.county_full = canonical + " County"
+                        if not event.state:
+                            event.state = state_code
                         break
 
         # ── Tier 3: City → county lookup ─────────────────────────────────────
@@ -201,18 +234,18 @@ class Enricher:
 
         # ── Post-enrichment county normalization ──────────────────────────────
         # URL enrichment or Serper organic data can set county to an all-caps
-        # variant (e.g. "ALLEGANY" instead of "Allegany"). Normalize against
-        # the canonical list to ensure consistent casing.
+        # variant ("ALLEGANY") or punctuation-stripped variant ("St Marys County").
+        # Normalize against the canonical list using _county_norm for consistency.
         if event.county and event.state:
-            for c in COUNTIES.get(event.state, []):
-                if c.lower() == event.county.lower() and c != event.county:
-                    event.county = c
-                    if not event.county_full:
-                        if re.search(r"\b(?:County|City|Borough)\b", c, re.IGNORECASE):
-                            event.county_full = c
-                        else:
-                            event.county_full = c + " County"
-                    break
+            norm = _punc_normalize(event.county).lower()
+            canonical = self._county_norm.get(event.state, {}).get(norm)
+            if canonical and canonical != event.county:
+                event.county = canonical
+                if not event.county_full:
+                    if re.search(r"\b(?:County|City|Borough)\b", canonical, re.IGNORECASE):
+                        event.county_full = canonical
+                    else:
+                        event.county_full = canonical + " County"
 
         if not event.county:
             logger.debug(

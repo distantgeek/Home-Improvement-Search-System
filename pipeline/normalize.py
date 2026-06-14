@@ -139,8 +139,17 @@ ATTENDANCE_RE = re.compile(
 EMAIL_RE = re.compile(r"\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b")
 PHONE_RE = re.compile(r"\(?\b\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}\b")
 SKIP_DOMAIN_RE = re.compile(
-    r"\b(wikipedia\.org|instagram\.com|twitter\.com|x\.com"
-    r"|tiktok\.com|pinterest\.com|linkedin\.com)\b"
+    r"\b("
+    # Social / media — no event address content
+    r"wikipedia\.org|instagram\.com|twitter\.com|x\.com"
+    r"|tiktok\.com|pinterest\.com|linkedin\.com"
+    # Ticket aggregators — link to events but don't host address data
+    r"|seatgeek\.com|etix\.com|bandsintown\.com|10times\.com"
+    # Review / mapping / streaming — not event landing pages
+    r"|yelp\.com|mapquest\.com|spotify\.com"
+    # Forum / community — mentions events but not authoritative pages
+    r"|reddit\.com"
+    r")\b"
 )
 _RANGE_SPLIT_RE = re.compile(r"\s*[–\-]\s*")
 _YEAR_IN_RANGE_RE = re.compile(r"\b(20[2-9]\d)\b")
