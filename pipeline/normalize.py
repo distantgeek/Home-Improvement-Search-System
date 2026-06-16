@@ -67,7 +67,6 @@ _NON_TARGET_STATES: frozenset[str] = frozenset(
         "Texas",
         "Utah",
         "Vermont",
-        "West Virginia",
         "Wisconsin",
         "Wyoming",
     }
@@ -76,7 +75,7 @@ _NON_TARGET_STATES: frozenset[str] = frozenset(
 _ADDR_STATE_RE = re.compile(r",\s*([A-Z]{2})\b")
 # Target state abbreviations (must match pipeline.constants.STATE_ORDER)
 _TARGET_ABBREVIATIONS: frozenset[str] = frozenset(
-    {"MD", "VA", "PA", "NJ", "DE", "DC", "MO", "IL", "OH", "KS"}
+    {"MD", "VA", "WV", "PA", "NJ", "DE", "DC", "MO", "IL", "OH", "KS"}
 )
 
 # ── Regex constants (ported from JS) ─────────────────────────────────────────
