@@ -12,7 +12,7 @@
 **What HISS is:** An event discovery tool for a home improvement company that exhibits
 at trade shows, home expos, county fairs, state fairs, and similar events. The company
 offers gutter protection, roofing, awnings, and related services across VA, MD, PA, DC,
-NJ, and DE.
+NJ, DE, and WV.
 
 **The problem it solves:** The event coordinator was manually printing lists from
 FestivalNet.com — a craft/art-vendor platform with predatory per-event pricing — and
@@ -128,7 +128,7 @@ home-improvement-search-system/
 │   ├── festivalnet/                  # Directory for manual FestivalNet HTML drops
 │   │   └── .gitkeep
 │   ├── zip-county.json              # ZIP → {state, county} (~33,642 entries, all 50 states + DC)
-│   └── city-county.json             # "STATE:city" → {county} (~3,822 entries)
+│   └── city-county.json             # "STATE:city" → {county} (~8,813 entries, 11 target states)
 ├── docs/
 │   ├── architecture.md              # Detailed architecture doc (superseded by this file)
 │   └── county-coverage.md           # Served-county localStorage schema and UI notes
@@ -290,16 +290,16 @@ enrich → dedup → store → sync chain.
 
 ### Phase 3 — Roadmap (not yet scheduled)
 
-- **Algorithmic county-name normalization.** The current `normalize_county()` in
-  `build-zip-county.sh` uses a three-step fallback (exact match → suffix-stripped →
-  space-removal) to map Census county names to `counties.json` canonical names. As
-  states are added, the mismatch patterns (Census `"X County"` vs bare `"X"`, Census
-  `"X city"` vs `"X City"`, `"De Witt"` vs `"DeWitt"`, etc.) will recur. Replace the
-  ad-hoc normalization with a proper algorithm: load `counties.json` as the canonical
-  set, build a per-state lookup dict from all known Census naming variants, and
-  validate at build time that every Census name resolves to exactly one canonical
-  entry. This eliminates the class of bugs where `"Baltimore city"` resolves to the
-  wrong county or `"De Witt County"` fails to match `"DeWitt"`.
+- **Algorithmic county-name normalization** *(partially complete).* `build-zip-county.sh`
+  now emits all ZCTA→county overlaps and lets Python select the best canonical match
+  (exact hit in `counties.json` beats raw area dominance). Virginia independent cities
+  (`"X city"` in Census → `"X City"` in `counties.json`) are resolved correctly in both
+  `zip-county.json` (canonical-match-first selection) and `city-county.json` (direct
+  city-entity mapping for place names that match a known city entity). The three-step
+  suffix-fallback (`normalize_county`) remains for non-target states where no canonical
+  set is available. Remaining edge case: space-normalized variants (`"De Witt County"` →
+  `"DeWitt"`) are handled but not tested exhaustively — add per-state regression cases
+  as new states are onboarded.
 
 - **Playwright sidecar for JS-heavy page enrichment.** The current `url_enrich.py`
   uses `requests` + `BeautifulSoup` for static HTML extraction, achieving ~60%
@@ -324,7 +324,7 @@ Committed as `e2f29c7` on `main`. Deployed and verified on TrueNAS (`<TRUENAS_IP
 - **HTML handler** (`html_handler.py`) — BS4 parser for FestivalNet My List HTML
   exports. Extracts: event name, dates, venue, city, state, ZIP, event type,
   attendance, contact info, web URL, description. Decodes JS-escaped emails.
-  Filters events to the 10 target states. All parsed events
+  Filters events to the 11 target states. All parsed events
   receive `source_type="festivalnet"` and `page_score=3` (highest priority).
 - **CSV handler** (`csv_handler.py`) — Flexible column name matching (e.g.
   "Event Name" or "name" or "title"). ISO date detection.
