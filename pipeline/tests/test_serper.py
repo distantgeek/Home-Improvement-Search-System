@@ -34,10 +34,17 @@ class TestBuildQueriesForState:
         )
         assert len(queries) == len(set(queries))
 
-    def test_state_fair_single_query(self):
+    def test_state_fair_generates_per_year_query(self):
         queries = build_queries_for_state(COUNTIES["MD"], "MD", ["State Fair"])
         state_fair_queries = [q for q in queries if "state fair" in q.lower()]
-        assert len(state_fair_queries) == 1
+        # one query per year (current + next)
+        assert len(state_fair_queries) == 2
+
+    def test_generates_next_year_queries(self):
+        from datetime import date
+        next_year = str(date.today().year + 1)
+        queries = build_queries_for_state(COUNTIES["MD"], "MD", ["Home Show"])
+        assert any(next_year in q for q in queries)
 
 
 class TestExtractStateFromQuery:
@@ -72,6 +79,9 @@ class TestExtractStateFromQuery:
 
     def test_extracts_kansas(self):
         assert _extract_state_from_query("fall festival Kansas 2026") == "KS"
+
+    def test_extracts_west_virginia(self):
+        assert _extract_state_from_query("county fair West Virginia 2026") == "WV"
 
     def test_returns_none_for_unknown_state(self):
         assert _extract_state_from_query("home show California 2026") is None

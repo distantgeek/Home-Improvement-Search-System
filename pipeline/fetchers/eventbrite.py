@@ -25,6 +25,7 @@ EVENTBRITE_SEARCH_URL = "https://www.eventbriteapi.com/v3/events/search/"
 _STATE_CENTROIDS: dict[str, tuple[float, float]] = {
     "MD": (39.0458, -76.6413),
     "VA": (37.4316, -78.6569),
+    "WV": (38.5976, -80.4549),
     "PA": (41.2033, -77.1945),
     "DC": (38.9072, -77.0369),
     "NJ": (40.0583, -74.4057),

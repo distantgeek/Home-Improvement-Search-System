@@ -17,9 +17,9 @@ from .models import EventItem, make_event_id
 
 _EVENT_CORE_RE = re.compile(r"\b(fair|show|expo|festival|exhibit|convention)\b")
 _NOISE_RE = re.compile(
-    r"\b(maryland|virginia|pennsylvania|washington\s*dc|new\s*jersey|delaware"
+    r"\b(maryland|west\s*virginia|virginia|pennsylvania|washington\s*dc|new\s*jersey|delaware"
     r"|missouri|illinois|ohio|kansas"
-    r"|md|va|pa|dc|nj|de|mo|il|oh|ks"
+    r"|md|va|wv|pa|dc|nj|de|mo|il|oh|ks"
     r"|the|annual|official|visit|welcome\s*to|home\s*of|guide|info"
     r"|details?|tickets?|schedule|dates?)\b",
     re.IGNORECASE,

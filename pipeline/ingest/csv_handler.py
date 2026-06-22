@@ -66,7 +66,7 @@ def _build_index(headers: list[str]) -> dict[str, int]:
 
 def _get(row: list[str], index: dict[str, int], field: str) -> str:
     col = index.get(field)
-    if col is None:
+    if col is None or col >= len(row):
         return ""
     return row[col].strip()
 

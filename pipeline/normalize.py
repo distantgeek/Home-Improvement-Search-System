@@ -467,7 +467,7 @@ def normalize_event(
         return None
     current_year = date.today().year
     page_score = (
-        (2 if str(current_year) in name else 0)
+        (2 if str(current_year) in name or str(current_year + 1) in name else 0)
         + (-1 if _GOV_URL_RE.search(url) else 0)
         + (-1 if _PARKS_URL_RE.search(url) else 0)
     )
