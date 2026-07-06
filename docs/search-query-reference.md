@@ -574,9 +574,7 @@ Once all 368 queries return, results go through the normalisation and dedup pipe
 Raw results (~2,100–2,200)
        ↓
 normalize_event()     — standardise fields, extract ZIP from address string
-       ↓
-eb_enrich             — fetch structured address data for Eventbrite-URL events
-       ↓
+        ↓
 Enricher.enrich()     — three-tier county resolution:
                          Tier 1: ZIP → zip-county.json (~3,940 entries)
                          Tier 2: county name scan (regex over address/venue/title)
@@ -624,5 +622,5 @@ matching entry to the `templates` dict in `build_queries_for_state()`. The pipel
 it up on the next run.
 
 To add a new state: add it to `COUNTIES`, `STATE_ORDER`, and `STATE_NAMES` in
-`constants.py`. The Eventbrite Discovery fetcher (`_STATE_CENTROIDS`) also needs a
-lat/lng centroid added.
+`constants.py`. The Serper fetcher (`build_queries_for_state`) uses these constants
+to generate location-scoped queries.

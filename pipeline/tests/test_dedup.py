@@ -1,4 +1,5 @@
 """Tests for pipeline.dedup — exact and fuzzy deduplication."""
+
 import pytest
 
 from pipeline.dedup import (
@@ -29,7 +30,9 @@ def _make_event(**kwargs) -> EventItem:
 
 class TestDedupKey:
     def test_year_stripped_from_name(self):
-        e = _make_event(name="Frederick Fair 2026", start_date="2026-08-01", zip="21701")
+        e = _make_event(
+            name="Frederick Fair 2026", start_date="2026-08-01", zip="21701"
+        )
         key = dedup_key(e)
         assert "2026" not in key.split("|")[0]
 
@@ -114,13 +117,19 @@ class TestExactDedup:
         results = exact_dedup([e1, e2])
         assert len(results) == 2
 
-    def test_eventbrite_wins_over_serper(self):
-        serper = _make_event(source_type="serper_events", primary_url="https://serper.com")
-        eb = _make_event(source_type="eventbrite", primary_url="https://eventbrite.com")
-        results = exact_dedup([serper, eb])
+    def test_festivalnet_wins_over_serper(self):
+        serper = _make_event(
+            source_type="serper_events", primary_url="https://serper.com"
+        )
+        fn = _make_event(
+            source_type="festivalnet",
+            page_score=3,
+            primary_url="https://festivalnet.com",
+        )
+        results = exact_dedup([serper, fn])
         assert len(results) == 1
-        assert results[0].source_type == "eventbrite"
-        assert results[0].primary_url == "https://eventbrite.com"
+        assert results[0].source_type == "festivalnet"
+        assert results[0].primary_url == "https://festivalnet.com"
 
     def test_event_id_set_on_output(self):
         e = _make_event()
@@ -174,12 +183,16 @@ class TestFuzzyMergeResults:
             assert len(results[0].sources) >= 1
 
     def test_different_events_not_merged(self):
-        e1 = _make_event(name="Frederick Home Show", county="Frederick", start_date="2026-03-14")
-        e2 = _make_event(name="Carroll County Fair", county="Carroll", start_date="2026-08-01")
+        e1 = _make_event(
+            name="Frederick Home Show", county="Frederick", start_date="2026-03-14"
+        )
+        e2 = _make_event(
+            name="Carroll County Fair", county="Carroll", start_date="2026-08-01"
+        )
         results = fuzzy_merge_results([e1, e2])
         assert len(results) == 2
 
-    def test_eventbrite_wins_fuzzy_merge(self):
+    def test_festivalnet_wins_fuzzy_merge(self):
         serper = _make_event(
             name="DC Home Design Show",
             county="District of Columbia",
@@ -188,17 +201,18 @@ class TestFuzzyMergeResults:
             primary_url="https://serper.com",
             source_type="serper_events",
         )
-        eb = _make_event(
+        fn = _make_event(
             name="DC Home and Design Show 2026",
             county="District of Columbia",
             state="DC",
             start_date="2026-02-16",
-            primary_url="https://eventbrite.com",
-            source_type="eventbrite",
+            page_score=3,
+            primary_url="https://festivalnet.com",
+            source_type="festivalnet",
         )
-        results = fuzzy_merge_results([serper, eb])
+        results = fuzzy_merge_results([serper, fn])
         if len(results) == 1:
-            assert results[0].source_type == "eventbrite"
+            assert results[0].source_type == "festivalnet"
 
     def test_year_county_bucket_used_not_date_zip(self):
         # Two events with same county+year but different dates — should still be bucketed together
@@ -327,9 +341,11 @@ class TestFuzzyMergeResults:
             name="2026 Talbot County Fair - FairEntry.com",
             county="Talbot",
             state="MD",
-            start_date="",   # no parsed date — but name says 2026
+            start_date="",  # no parsed date — but name says 2026
             primary_url="https://fairentry.com/event/123",
             source_type="serper_organic",
         )
         results = fuzzy_merge_results([e1, e2])
-        assert len(results) == 1, "Should merge — both are Talbot County Fair, name has year"
+        assert len(results) == 1, (
+            "Should merge — both are Talbot County Fair, name has year"
+        )

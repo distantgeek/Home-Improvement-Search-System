@@ -45,7 +45,6 @@ home expos, and fairs across VA, MD, PA, DC, NJ, and DE.
 |---|---|
 | **1,000 result cap** | Search returns max 1,000 events; if the coordinator searches all states with no date filter, 1,500+ events are invisible |
 | **FestivalNet is manual** | Coordinator must export HTML from FestivalNet and run a CLI command (no web upload yet) |
-| **No Eventbrite data** | Free tier returns 401; structured venue/ZIP enrichment from Eventbrite URLs is built but inactive |
 | **Out-of-region noise** | A handful of non-target-state events (Portland, Columbus) occasionally appear from Google search results |
 | **No dashboard alerts** | Coordinator must manually search each region; no "new events near county X" dashboard |
 | **Single-user** | No accounts, permissions, or concurrent-user support (not needed for current use) |

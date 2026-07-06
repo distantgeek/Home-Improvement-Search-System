@@ -17,23 +17,23 @@ class EventItem:
 
     # ── Core ─────────────────────────────────────────────────────────────────
     name: str = ""
-    start_date: str = ""   # YYYY-MM-DD or ""
-    end_date: str = ""     # YYYY-MM-DD or "", defaults to start_date
+    start_date: str = ""  # YYYY-MM-DD or ""
+    end_date: str = ""  # YYYY-MM-DD or "", defaults to start_date
 
     # ── Location ─────────────────────────────────────────────────────────────
     venue: str = ""
     city: str = ""
-    state: str = ""        # VA | MD | PA | DC | NJ | DE
-    county: str = ""       # "Frederick" — no suffix
+    state: str = ""  # VA | MD | PA | DC | NJ | DE
+    county: str = ""  # "Frederick" — no suffix
     county_full: str = ""  # "Frederick County" — with suffix
-    zip: str = ""          # 5-digit or ""
+    zip: str = ""  # 5-digit or ""
 
     # ── Classification ───────────────────────────────────────────────────────
     event_type: str = ""
 
     # ── Provenance ───────────────────────────────────────────────────────────
     primary_url: str = ""
-    source_type: str = ""          # "eventbrite" | "serper_events" | "serper_organic"
+    source_type: str = ""  # "serper_events" | "serper_organic"
     source_queries: list[str] = field(default_factory=list)
     sources: list[dict] = field(default_factory=list)  # alternate URLs
 

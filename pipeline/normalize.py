@@ -141,17 +141,29 @@ PHONE_RE = re.compile(r"\(?\b\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}\b")
 # Domains rejected from the organic pipeline entirely — not event landing pages.
 # Matched against the URL hostname only (not the full URL string) to prevent
 # false positives from query parameters and to avoid \b boundary edge cases.
-_SKIP_DOMAINS: frozenset[str] = frozenset({
-    # Social / media
-    "wikipedia.org", "instagram.com", "twitter.com", "x.com",
-    "tiktok.com", "pinterest.com", "linkedin.com",
-    # Ticket aggregators
-    "seatgeek.com", "etix.com", "bandsintown.com", "10times.com",
-    # Review / mapping / streaming
-    "yelp.com", "mapquest.com", "spotify.com",
-    # Forum / community
-    "reddit.com",
-})
+_SKIP_DOMAINS: frozenset[str] = frozenset(
+    {
+        # Social / media
+        "wikipedia.org",
+        "instagram.com",
+        "twitter.com",
+        "x.com",
+        "tiktok.com",
+        "pinterest.com",
+        "linkedin.com",
+        # Ticket aggregators
+        "seatgeek.com",
+        "etix.com",
+        "bandsintown.com",
+        "10times.com",
+        # Review / mapping / streaming
+        "yelp.com",
+        "mapquest.com",
+        "spotify.com",
+        # Forum / community
+        "reddit.com",
+    }
+)
 
 
 def _is_skip_domain(url: str) -> bool:
@@ -161,6 +173,8 @@ def _is_skip_domain(url: str) -> bool:
     except ValueError:
         return False
     return any(hostname == d or hostname.endswith("." + d) for d in _SKIP_DOMAINS)
+
+
 _RANGE_SPLIT_RE = re.compile(r"\s*[–\-]\s*")
 _YEAR_IN_RANGE_RE = re.compile(r"\b(20[2-9]\d)\b")
 _RANGE_END_RE = re.compile(r"[–\-]\s*(?:(\w+)\s+)?(\d+)(?:,\s*(\d{4}))?")
@@ -253,7 +267,7 @@ def parse_dates(date_input: str | dict | None) -> tuple[str, str]:
     Handles:
       - Plain string: "Apr 18 – 19, 2026" or "Sat, Apr 18, 2026"
       - Dict: {"startDate": "...", "when": "..."} (Serper events shape)
-      - ISO string: "2026-04-18T10:00:00" (Eventbrite shape)
+      - ISO string: "2026-04-18T10:00:00"
       - None / empty / unrecognised → ("", "")
     """
     if not date_input:
@@ -271,7 +285,7 @@ def parse_dates(date_input: str | dict | None) -> tuple[str, str]:
     if not raw_start:
         return ("", "")
 
-    # ISO datetime from Eventbrite (e.g. "2026-04-18T10:00:00") — parse directly
+    # ISO datetime (e.g. "2026-04-18T10:00:00") — parse directly
     # before applying range-split logic which would mangle the hyphens.
     if isinstance(raw_start, str) and "T" in raw_start:
         try:
@@ -378,9 +392,9 @@ _NON_EVENT_TITLE_RE = re.compile(
     r"\s*$",
     re.IGNORECASE,
 )
-# Pages titled "X - FairEntry.com" or "X - Eventbrite" — sub-pages not the main event
+# Pages titled "X - FairEntry.com" or "X - Facebook" — sub-pages not the main event
 _SUBSITE_SUFFIX_RE = re.compile(
-    r"\s*[-|]\s*(fai?rentry|eventbrite|allevents|facebook|ticketmaster|eventbrite)\b",
+    r"\s*[-|]\s*(fai?rentry|allevents|facebook|ticketmaster)\b",
     re.IGNORECASE,
 )
 _AGGREGATOR_TITLE_RE = re.compile(
@@ -394,7 +408,7 @@ def normalize_event(
     source_query: str,
     search_state: str | None,
 ) -> EventItem | None:
-    """Normalize a raw Serper or Eventbrite event dict into an EventItem.
+    """Normalize a raw Serper event dict into an EventItem.
 
     The returned item has county/city empty; call enrich() to fill those in.
     """

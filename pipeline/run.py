@@ -7,7 +7,6 @@ Required environment variables:
     MEILI_MASTER_KEY    Meilisearch master key
 
 Optional:
-    EVENTBRITE_API_KEY  Eventbrite API key (Tier 1 skipped if absent)
     MEILI_URL           Meilisearch URL (default: http://hiss-meilisearch:7700)
     DB_PATH             SQLite path (default: /data/hiss.db)
     DATA_DIR            Census lookup files dir (default: ../data relative to this file)
@@ -32,7 +31,6 @@ from pathlib import Path
 
 from .dedup import exact_dedup, fuzzy_merge_results
 from .enrich import Enricher
-from .fetchers import eventbrite as eb_fetcher
 from .fetchers import serper as serper_fetcher
 from .fetchers import url_enrich
 from .ingest import ingest_file
@@ -61,7 +59,6 @@ def _load_config() -> dict:
     meili_master_key = os.environ.get("MEILI_MASTER_KEY", "")
     config = {
         "serper_api_key": os.environ.get("SERPER_API_KEY", ""),
-        "eventbrite_api_key": os.environ.get("EVENTBRITE_API_KEY", ""),
         "meili_url": meili_url,
         "meili_master_key": meili_master_key,
         "db_path": os.environ.get("DB_PATH", "/data/hiss.db"),
@@ -111,16 +108,7 @@ def run_pipeline(config: dict, ingest_path: str | None = None) -> None:
         events.extend(ingested)
         logger.info("Ingested %d events", len(ingested))
 
-    # ── Tier 1: Eventbrite ───────────────────────────────────────────────────
-    if config["eventbrite_api_key"]:
-        logger.info("Fetching Tier 1 (Eventbrite)…")
-        eb = eb_fetcher.fetch_all(config["eventbrite_api_key"], dry_run=dry_run)
-        logger.info("Eventbrite raw: %d", len(eb))
-        events.extend(eb)
-    else:
-        logger.info("EVENTBRITE_API_KEY not set — skipping Tier 1")
-
-    # ── Tier 2: Serper.dev ───────────────────────────────────────────────────
+    # ── Tier 1: Serper.dev ───────────────────────────────────────────────────
     logger.info("Fetching Tier 2 (Serper.dev)…")
     queries = serper_fetcher.build_all_queries()
     logger.info("Built %d Serper queries", len(queries))
@@ -209,9 +197,7 @@ def run_pipeline(config: dict, ingest_path: str | None = None) -> None:
 
     # Build URL → winner event_id map from the final deduplicated event list so
     # we can delete cross-run URL duplicates from the DB after upserting.
-    url_to_winner = {
-        e.primary_url: e.event_id for e in events if e.primary_url
-    }
+    url_to_winner = {e.primary_url: e.event_id for e in events if e.primary_url}
 
     # ── Store ────────────────────────────────────────────────────────────────
     store = Store(config["db_path"])
@@ -300,7 +286,9 @@ def main() -> None:
     scheduler = BlockingScheduler()
     scheduler.add_listener(_job_error_listener, EVENT_JOB_ERROR)
     scheduler.add_listener(_job_missed_listener, EVENT_JOB_MISSED)
-    scheduler.add_job(run_pipeline, trigger, args=[config, None], id="pipeline", max_instances=1)
+    scheduler.add_job(
+        run_pipeline, trigger, args=[config, None], id="pipeline", max_instances=1
+    )
     logger.info("Scheduler started — cron: %s", config["schedule"])
 
     # Run once immediately so data is available right after deploy.

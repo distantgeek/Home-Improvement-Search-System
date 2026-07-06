@@ -63,18 +63,14 @@ any external network (no built-in auth; raw SQL exposure risk).
 ### Data flow (pipeline run)
 
 ```
-Manual file ingest (Tier 1b, optional — --ingest-file flag)
+Manual file ingest (optional — --ingest-file flag)
          │  FestivalNet HTML My List export → parse_html() → EventItem
          │  page_score=3, source_type="festivalnet"
          │
          ├──→ normalize_event() / parse_dates() / infer_event_type()
          ├──→ enrich()  ← early county resolution for ingested events
          │
-Eventbrite Discovery API (Tier 1a, optional — returns 404 on free tier)
-         │
-         ├──→ normalize_event() / parse_dates() / infer_event_type()
-         │
-Serper.dev Google Events (Tier 2, required)
+Serper.dev Google Events (Tier 1, required)
          │
          ├──→ organics_to_events() for non-carousel results
          │
@@ -95,7 +91,7 @@ Serper.dev Google Events (Tier 2, required)
                     │
                     ▼
               exact_dedup()   ← pass 1: name|year|locality key
-                    │   priority: festivalnet=0 > eventbrite=0 > serper_events=1 > url_enrich=1 > serper_organic=2
+                    │   priority: festivalnet=0 > serper_events=1 > url_enrich=1 > serper_organic=2
                     │   ties break on higher page_score
                     ▼
               fuzzy_merge_results()  ← pass 2: Jaccard ≥ 0.60 in year|county buckets
@@ -168,8 +164,7 @@ home-improvement-search-system/
 │   │                                #   major.minor.* with regular CVE audits
 │   ├── fetchers/
 │   │   ├── __init__.py
-│   │   ├── serper.py                # Tier 2: Serper.dev + organics fallback
-│   │   ├── eventbrite.py            # Tier 1: Eventbrite Discovery API (optional, enterprise-only)
+│   │   ├── serper.py                # Tier 1: Serper.dev + organics fallback
 │   │   └── url_enrich.py           # URL enrichment: scrape event pages for address data (JSON-LD, microdata, heuristic)
 │   ├── ingest/
 │   │   ├── __init__.py              # File dispatcher — format auto-detection
@@ -186,13 +181,11 @@ home-improvement-search-system/
 │       ├── test_store.py
 │       ├── test_sync.py
 │       ├── test_serper.py
-│       ├── test_eventbrite.py
 │       ├── test_ingest.py
 │       ├── test_url_enrich.py
 │       └── fixtures/
 │           ├── serper_events_response.json
 │           ├── serper_organic_response.json
-│           ├── eventbrite_response.json
 │           └── festivalnet_sample.html
 ├── Dockerfile                       # Frontend: nginx:alpine serving index.html
 ├── Dockerfile.pipeline              # Pipeline: python:3.12-slim, runs as UID 1000
@@ -332,9 +325,9 @@ Committed as `e2f29c7` on `main`. Deployed and verified on TrueNAS (`<TRUENAS_IP
   wrappers, nested `location: {name, city, state, zip}` objects, and
   schema.org-inspired `location.address` structures.
 - **Dedup priority** — `festivalnet`, `json_ingest`, and `csv_ingest` added to
-  `_SOURCE_PRIORITY` at level 0 (tied with eventbrite as highest). Ingested
+  `_SOURCE_PRIORITY` at level 0 (highest priority). Ingested
   events win dedup conflicts over Serper (`priority 1`) and Serper organics
-  (`priority 2`). Missing fields from lower-priority sources still merge in.
+  (`priority 2`).
 - **Frontend source labeling** — Added `SOURCE` column to results table.
   FestivalNet events display "FestivalNet" badge. Source filter pills at top
   of results include festivalnet count. CSS added for `.source-pill.festivalnet`
@@ -350,7 +343,16 @@ from their browser (Ctrl+S → "Web Page, HTML Only"). No HTTP requests to
 FestivalNet.com are made by the pipeline — zero ToS violation risk.
 
 **Current index stats:** ~2,765 total events (~356 FestivalNet, ~2,409 Serper).
-254/254 pipeline tests pass.
+252/252 pipeline tests pass. Eventbrite fetcher removed (see `docs/GAPS.md` for roadmap).
+
+### Docs index
+
+| Document | Purpose |
+|---|---|
+| `AGENTS.md` | This file — primary agent context |
+| `docs/GAPS.md` | Known gaps, bugs, and future development roadmap |
+| `docs/architecture.md` | Detailed architecture (superseded by this file) |
+| `docs/county-coverage.md` | Served-county localStorage schema and UI notes |
 
 ---
 
@@ -436,8 +438,8 @@ The frontend shows "FestivalNet" in the SOURCE column. Target-state filtering is
 ### First deployment (reference — already done; skip this section)
 
 1. Copy `compose.yaml` + `.env` to `/mnt/kevbot-store/stacks/home-improvement-show-search/`.
-   The TrueNAS `compose.yaml` uses `ports: "8888:80"` on `hiss` (NPM routes by host IP).
-2. Set `MEILI_MASTER_KEY`, `SERPER_API_KEY`, `EVENTBRITE_API_KEY` in `.env`. `chmod 600 .env`.
+   what to do if. The TrueNAS `compose.yaml` uses `ports: "8888:80"` on `hiss` (NPM routes by host IP).
+2. Set `MEILI_MASTER_KEY` and `SERPER_API_KEY` in `.env`. `chmod 600 .env`.
 3. Fix volume ownership: `sudo docker run --rm -v home-improvement-show-search_pipeline_data:/data busybox chown -R 1000:1000 /data`
 4. Start: `sudo docker compose -f compose.yaml up -d`
 5. `MEILI_SEARCH_KEY` is auto-generated by Meilisearch on first start as "Default Search API Key".
@@ -591,7 +593,6 @@ All variables are read by `pipeline/run.py` via `_load_config()` at startup.
 |---|---|---|---|
 | `SERPER_API_KEY` | Yes (non-dry-run) | — | Serper.dev API key; `POST google.serper.dev/search` |
 | `MEILI_MASTER_KEY` | Yes (non-dry-run) | — | Meilisearch master key; placeholder value rejected at startup |
-| `EVENTBRITE_API_KEY` | No | — | Eventbrite Discovery API key; Tier 1 skipped if absent |
 | `MEILI_URL` | No | `http://hiss-meilisearch:7700` | Meilisearch base URL; must start with `http://` or `https://` (SSRF guard) |
 | `MEILI_SEARCH_KEY` | No | — | Search-only Meilisearch key; provided to frontend in Phase 1 |
 | `DB_PATH` | No | `/data/hiss.db` | SQLite database path inside the container |
@@ -609,8 +610,8 @@ All variables are read by `pipeline/run.py` via `_load_config()` at startup.
 
 Entry point. `_load_config()` reads env vars and validates `MEILI_URL` scheme and
 `MEILI_MASTER_KEY` placeholder at startup — exits with an error if either fails. The
-`run_pipeline()` function orchestrates one full pass: ingest (optional), fetch (Eventbrite,
-then Serper), URL enrichment, enrich, date-filter to current year, exact dedup, fuzzy dedup,
+`run_pipeline()` function orchestrates one full pass: ingest (optional), fetch (Serper),
+URL enrichment, enrich, date-filter to current year, exact dedup, fuzzy dedup,
 upsert to SQLite, cross-run URL dedup cleanup (removes stale same-URL events from SQLite
 and Meilisearch), purge expired (returns deleted IDs so Meilisearch is also cleaned),
 sync to Meilisearch. In long-lived mode, APScheduler wraps `run_pipeline()` with
@@ -622,23 +623,13 @@ exit with code 1 rather than swallowing the exception.
 
 ### `pipeline/fetchers/serper.py`
 
-Tier 2 catch-all. `build_all_queries()` generates search strings for all six states
+Tier 1 catch-all. `build_all_queries()` generates search strings for all eleven states
 and all eight event types from `constants.COUNTIES`/`EVENT_TYPES` — state-level queries
 (e.g. `"home show Maryland 2026"`) plus per-county queries for county fairs. `fetch_all()`
 sends each query to `https://google.serper.dev/search` with a 400ms inter-query delay;
 on HTTP 429 it waits 30 seconds and retries once before logging and continuing. Results
 from `eventsResults[]` are tagged `serper_events`; when that field is absent, `organic[]`
 results are passed through `organics_to_events()` and tagged `serper_organic`.
-
-### `pipeline/fetchers/eventbrite.py`
-
-Tier 1 structured source. Uses the Eventbrite Discovery API (`/v3/events/search/`) with
-lat/lng centroid + 100mi radius for each target state, paginating until `has_more_items`
-is false. Returns structured venue, city, ZIP, and date data directly in the API response
-(no address parsing needed). On HTTP 401/403, logs a warning and returns an empty list
-without aborting — the Discovery API requires enterprise access and is treated as
-optional (currently returns 404 on the free tier; Tier 2 runs regardless). All Eventbrite
-events get `page_score=2` (highest priority in dedup).
 
 ### `pipeline/fetchers/url_enrich.py`
 
@@ -718,7 +709,7 @@ objects, and single objects. Supports nested `location: {name, city, state, zip}
 ### `pipeline/normalize.py`
 
 Ports the `normalizeEvent` / `parseDates` / `inferEventType` / `organicsToEvents` logic
-from `index.html` into Python. `parse_dates()` handles Eventbrite ISO strings, Serper
+from `index.html` into Python. `parse_dates()` handles ISO strings, Serper
 human-readable strings (`"Apr 18 – 19, 2026"`), and date dicts; returns
 `(start_date, end_date)` as `YYYY-MM-DD`. `infer_event_type()` classifies into one of
 eight types using keyword matching against the query string + event title. `organics_to_events()`
@@ -763,7 +754,7 @@ correct punctuation. Bare county names like "St. Mary's" are also indexed under 
 
 Two-pass deduplication. `exact_dedup()` (pass 1) keys on
 `normalized_name|year|locality` where locality is ZIP or state. On collision, the
-higher-priority source wins (`festivalnet` = `json_ingest` = `csv_ingest` = `eventbrite`
+higher-priority source wins (`festivalnet` = `json_ingest` = `csv_ingest`
 > `serper_events` = `url_enrich` > `serper_organic`); ties break on `page_score`. Missing fields (ZIP,
 county, city, venue) are merged from the lower-priority duplicate. `fuzzy_merge_results()` (pass 2) buckets events by `year|county`
 — not `startDate|zip` as in the original JS — so the same event with slightly different
@@ -833,8 +824,6 @@ city-to-county lookups. Edit here when adding new states or event types.
 | URL enrichment domain blacklist | `_ENRICH_SKIP_DOMAINS` skips enrichment for login-walled domains (facebook.com) — events are kept, no fetch attempted |
 | MEILI_MASTER_KEY placeholder check | Startup rejects key containing `"change-me"` — prevents accidental deploy with the example value |
 | URL enrichment SSRF protection | `_is_blocked_url` blocks non-HTTPS, private IPs (RFC 1918, loopback, link-local, CGNAT 100.64.0.0/10), IPv6 reserved ranges (::1, fc00::/7, fe80::/10, ::ffff:0:0/96, ::/128), internal hostnames, and HTTPS-to-HTTP redirects; DNS resolved before fetch |
-| Eventbrite URL validation | `extract_eventbrite_id()` validates scheme (`https` only), host (exact match on `eventbrite.com`/`www.eventbrite.com`), path pattern, and ID format before calling the API — prevents lookalike-host injection and API calls on malformed URLs |
-| Eventbrite response ID check | API response `id` field must match the requested ID; mismatches are logged and the enrichment is skipped — prevents applying data from the wrong event |
 | `contact` PII exclusion | `sync.py._row_to_meili_doc()` omits `contact` — scraped emails/phones stay in SQLite only |
 | Ghost document deletion | `purge_expired()` and `url_dedup_cleanup()` return deleted IDs; `run_pipeline` calls `syncer.delete_documents()` to remove them from Meilisearch — prevents stale documents accumulating in the index across runs |
 | Datasette internal-only network | `hiss-datasette` has no `ports:` mapping and is not on the proxy network — access requires SSH tunnel |
@@ -870,7 +859,6 @@ All four headers are set in `nginx.conf` at the `server {}` level with `always` 
 |---|---|
 | Bandit SAST | Runs on `pipeline/**/*.py`; OWASP A04 + A05 rules; NIST SA-11 |
 | Parameterized SQL | All SQLite queries use `?` placeholders; errors trigger `rollback()` |
-| Eventbrite URL validation | Validates scheme, host, path, and ID format before API calls |
 | pip-audit supply chain | Audits `requirements.txt` + `requirements-dev.txt` for known CVEs (OWASP A06) |
 
 ### Shell script security controls
@@ -1063,12 +1051,6 @@ inspection.
 - **Meilisearch document fields are camelCase.** The existing `renderResults()` JS reads
   `startDate`, `countyFull`, `sourceType`, etc. Do not change the field names in
   `sync.py._row_to_meili_doc()` without updating the frontend to match.
-- **Eventbrite is a best-effort enrichment layer.** The Discovery API (Tier 1) requires
-  enterprise access and currently returns 404 on the free tier. The per-URL enrichment step
-  (`eventbrite_enrich.py`) has been removed — only 4 of 3,589 events had Eventbrite URLs,
-  and the free token cannot enrich any of them. URL enrichment is now handled by
-  `url_enrich.py`, which scrapes any event page (not just Eventbrite) for address data.
-  Do not treat Eventbrite failures as blocking errors.
 - **Do not start Phase 2 (Scrapy) without explicit instruction.** `pipeline/spiders/`
   exists as a placeholder only.
 - **FestivalNet file ingest is manual, not automated.** FestivalNet.com ToS prohibits

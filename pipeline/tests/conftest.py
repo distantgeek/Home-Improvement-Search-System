@@ -23,11 +23,6 @@ def serper_organic_payload() -> dict:
 
 
 @pytest.fixture
-def eventbrite_payload() -> dict:
-    return json.loads((FIXTURES_DIR / "eventbrite_response.json").read_text())
-
-
-@pytest.fixture
 def festivalnet_html_path() -> Path:
     return FIXTURES_DIR / "festivalnet_sample.html"
 

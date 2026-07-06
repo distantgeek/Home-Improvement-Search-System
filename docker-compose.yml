@@ -50,7 +50,6 @@ services:
         max-file: "3"
     environment:
       SERPER_API_KEY: "${SERPER_API_KEY}"
-      EVENTBRITE_API_KEY: "${EVENTBRITE_API_KEY}"
       MEILI_URL: "http://hiss-meilisearch:7700"
       MEILI_MASTER_KEY: "${MEILI_MASTER_KEY}"
       DB_PATH: "/data/hiss.db"

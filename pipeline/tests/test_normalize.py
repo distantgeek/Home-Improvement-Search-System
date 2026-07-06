@@ -49,7 +49,7 @@ class TestParseDates:
         assert start == "2026-03-14"
         assert end == "2026-03-14"
 
-    def test_iso_format_from_eventbrite(self):
+    def test_iso_format(self):
         start, end = parse_dates("2026-04-18T10:00:00")
         assert start == "2026-04-18"
         assert end == "2026-04-18"
@@ -130,9 +130,7 @@ class TestOrganicsToEvents:
                 "snippet": "Annual home show in Frederick County, MD, July 2026",
                 "link": url,
             }
-            for domain, url in [
-                (u.split("/")[2], u) for u in noise_urls
-            ]
+            for domain, url in [(u.split("/")[2], u) for u in noise_urls]
         ]
         results = organics_to_events(organics)
         assert results == [], f"Expected all noise domains filtered, got: {results}"

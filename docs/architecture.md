@@ -15,8 +15,7 @@ there.
 | Technology | Role | Notes |
 |---|---|---|
 | **Python 3.12** | Pipeline runtime | requests, BeautifulSoup4, rapidfuzz, meilisearch |
-| **Eventbrite Discovery API** | Tier 1 event source | Structured: venue, ZIP, dates in response; API key in `.env` |
-| **Serper.dev** | Tier 2 catch-all | Google Events + organic fallback; 2,500/mo free; existing codebase |
+| **Serper.dev** | Tier 1 catch-all | Google Events + organic fallback; 2,500/mo free; existing codebase |
 | **BeautifulSoup4** | Organic fallback parsing | Parses Serper organic snippets; Scrapy reserved for Phase 2 |
 | **APScheduler** | Container-internal cron | Pipeline runs weekly inside the container; no host cron |
 | **SQLite** | Canonical data store | Source of truth; pipeline writes here first |
@@ -64,17 +63,17 @@ debug access. No HTTPS within the homelab LAN is acceptable for this use case.
 ┌──────────────────────────────────────────────────────────────────────┐
 │  hiss-pipeline container  (APScheduler: weekly)                      │
 │                                                                      │
-│  ┌────────────────────┐    ┌─────────────────────────────────────┐   │
-│  │  TIER 1            │    │  TIER 2                             │   │
-│  │  Eventbrite API    │    │  Serper.dev                         │   │
-│  │  fetchers/         │    │  fetchers/serper.py                 │   │
-│  │  eventbrite.py     │    │                                     │   │
-│  │                    │    │  POST google.serper.dev/search      │   │
-│  │  GET /events/      │    │  eventsResults[] → structured       │   │
-│  │  search/?q=...     │    │  organic[]      → organicsToEvents  │   │
-│  │  &location=...     │    │                                     │   │
-│  └─────────┬──────────┘    └──────────────┬──────────────────────┘   │
-│            │                              │                           │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │  TIER 1                                                          │   │
+│  │  Serper.dev                                                       │   │
+│  │  fetchers/serper.py                                               │   │
+│  │                                                                   │   │
+│  │  POST google.serper.dev/search                                   │   │
+│  │  eventsResults[] → structured                                    │   │
+│  │  organic[]      → organicsToEvents                               │   │
+│  │                                                                   │   │
+│  └──────────────────────────────┬───────────────────────────────────┘   │
+│                                 │                                       │
 │            └──────────────┬──────────────┘                           │
 │                           ▼                                           │
 │             ┌─────────────────────────┐                              │
@@ -162,8 +161,8 @@ class EventItem:
                            # Art & Craft|Food Festival|Fall Festival|Community Festival
 
     # Provenance
-    primary_url: str       # Eventbrite > Serper events > Serper organic
-    source_type: str       # "eventbrite"|"serper_events"|"serper_organic"
+    primary_url: str       # Serper events > Serper organic
+    source_type: str       # "serper_events"|"serper_organic"
     source_queries: list[str]
     sources: list[dict]    # Alternate URLs: [{"url": "...", "source_type": "..."}]
 
@@ -177,8 +176,8 @@ class EventItem:
     synced: int            # 0 = needs Meilisearch sync, 1 = synced
 ```
 
-**Source priority (highest wins for `primary_url`):**
-1. `eventbrite` — structured, canonical URL, venue/ZIP in response directly
+**Source priority (highest wins for dedup):**
+1. `festivalnet` — manual FestivalNet HTML ingest
 2. `serper_events` — Google Events carousel result
 3. `serper_organic` — parsed from organic search result
 
@@ -215,8 +214,7 @@ home-improvement-search-system/
 │   ├── run.py                   # entry point: orchestrate + APScheduler
 │   ├── fetchers/
 │   │   ├── __init__.py
-│   │   ├── eventbrite.py        # Tier 1: Eventbrite Discovery API
-│   │   └── serper.py            # Tier 2: Serper.dev + organicsToEvents
+│   │   └── serper.py            # Tier 1: Serper.dev + organicsToEvents
 │   ├── spiders/                 # Phase 2 only (Scrapy)
 │   │   └── .gitkeep
 │   └── tests/
@@ -230,7 +228,6 @@ home-improvement-search-system/
 │       └── fixtures/
 │           ├── serper_events_response.json
 │           ├── serper_organic_response.json
-│           └── eventbrite_response.json
 ├── Dockerfile                   # existing: nginx:alpine frontend + reverse proxy
 ├── Dockerfile.pipeline          # NEW: Python pipeline image
 ├── docker-compose.yml           # MODIFIED: adds 3 new services
@@ -280,7 +277,6 @@ services:
     restart: unless-stopped
     environment:
       SERPER_API_KEY: "${SERPER_API_KEY}"
-      EVENTBRITE_API_KEY: "${EVENTBRITE_API_KEY}"
       MEILI_URL: "http://hiss-meilisearch:7700"
       MEILI_MASTER_KEY: "${MEILI_MASTER_KEY}"
       MEILI_SEARCH_KEY: "${MEILI_SEARCH_KEY}"
@@ -327,7 +323,6 @@ networks:
 MEILI_MASTER_KEY=change-me-min-16-chars
 MEILI_SEARCH_KEY=           # populated after first deploy: POST /keys with actions=["search"]
 SERPER_API_KEY=
-EVENTBRITE_API_KEY=
 NPM_NETWORK_NAME=           # your NPM external Docker network name
 ```
 
@@ -403,7 +398,7 @@ Serper.dev remains as catch-all for discovery.
 
 **Normalization (port from index.html)**
 - [ ] `normalize.py`: `parseDates()`, `inferEventType()`, `normalizeEvent()`
-- [ ] `tests/test_normalize.py` — edge cases: range dates, missing year, ISO from Eventbrite
+- [ ] `tests/test_normalize.py` — edge cases: range dates, missing year, ISO format
 
 **Enrichment (port from index.html)**
 - [ ] `enrich.py`: three-tier `enrich(event)` loading zip-county.json + city-county.json
@@ -423,8 +418,6 @@ Serper.dev remains as catch-all for discovery.
 - [ ] `fetchers/serper.py`: `callSerper()`, `organicsToEvents()`, `fetch_all()` with
       400ms inter-query delay and 429 backoff
 - [ ] `tests/test_serper.py` — mock `requests.post`
-- [ ] `fetchers/eventbrite.py`: Discovery API client with location + keyword search
-- [ ] `tests/test_eventbrite.py` — mock responses
 
 **Meilisearch sync**
 - [ ] `sync.py`: `configure_index()` (idempotent settings), `sync_to_meilisearch()`

@@ -111,12 +111,13 @@ class TestEnrichSkipDomain:
 
     def test_enrich_skip_domain_does_not_match_legitimate_domains(self):
         assert not _is_enrich_skip_domain("https://www.charlescountyfair.com/")
-        assert not _is_enrich_skip_domain("https://eventbrite.com/e/county-fair-123")
 
     def test_enrich_skip_domain_not_fooled_by_query_param(self):
         # SSRF bypass: query param containing facebook.com must NOT trigger skip
         assert not _is_enrich_skip_domain("https://192.168.1.1/?ref=facebook.com")
-        assert not _is_enrich_skip_domain("https://10.0.0.1/admin?utm_source=facebook.com")
+        assert not _is_enrich_skip_domain(
+            "https://10.0.0.1/admin?utm_source=facebook.com"
+        )
 
     def test_enrich_skip_domains_constant_contains_facebook(self):
         assert "facebook.com" in _ENRICH_SKIP_DOMAINS
@@ -487,7 +488,9 @@ class TestFetchAndExtractRetry:
             return mock_resp
 
         mock_session = MagicMock()
-        with patch("pipeline.fetchers.url_enrich._get_session", return_value=mock_session):
+        with patch(
+            "pipeline.fetchers.url_enrich._get_session", return_value=mock_session
+        ):
             mock_session.get.side_effect = side_effect
             result = _fetch_and_extract(target_url)
         assert result is not None
@@ -499,7 +502,9 @@ class TestFetchAndExtractRetry:
         from pipeline.fetchers.url_enrich import _fetch_and_extract
 
         mock_session = MagicMock()
-        with patch("pipeline.fetchers.url_enrich._get_session", return_value=mock_session):
+        with patch(
+            "pipeline.fetchers.url_enrich._get_session", return_value=mock_session
+        ):
             mock_session.get.side_effect = requests.ConnectionError("timeout")
             result = _fetch_and_extract("https://www.example.com/events/home-show")
         assert result is None
@@ -560,7 +565,9 @@ class TestEnrichOneEventRetry:
             return mock_resp
 
         mock_session = MagicMock()
-        with patch("pipeline.fetchers.url_enrich._get_session", return_value=mock_session):
+        with patch(
+            "pipeline.fetchers.url_enrich._get_session", return_value=mock_session
+        ):
             mock_session.get.side_effect = side_effect
             event = _make_event(zip_code="", city="", county="")
             count = enrich_from_urls([event])
@@ -591,7 +598,9 @@ class TestEnrichOneEventRetry:
     def test_event_retry_also_fails(self):
         """Both initial fetch and event-level retry fail — returns fetch_failed."""
         mock_session = MagicMock()
-        with patch("pipeline.fetchers.url_enrich._get_session", return_value=mock_session):
+        with patch(
+            "pipeline.fetchers.url_enrich._get_session", return_value=mock_session
+        ):
             mock_session.get.side_effect = requests.ConnectionError("timeout")
             event = _make_event(zip_code="", city="", county="")
             count = enrich_from_urls([event])
@@ -618,7 +627,9 @@ class TestRenderViaSidecar:
         """Sidecar unreachable — returns None."""
         with patch("pipeline.fetchers.url_enrich._SIDECAR_URL", "http://sidecar:8000"):
             mock_session = MagicMock()
-            with patch("pipeline.fetchers.url_enrich._get_session", return_value=mock_session):
+            with patch(
+                "pipeline.fetchers.url_enrich._get_session", return_value=mock_session
+            ):
                 mock_session.post.side_effect = requests.ConnectionError("refused")
                 result = _render_via_sidecar("https://www.example.com/events/home-show")
         assert result is None
@@ -627,7 +638,9 @@ class TestRenderViaSidecar:
         """Sidecar returns 502 — returns None."""
         with patch("pipeline.fetchers.url_enrich._SIDECAR_URL", "http://sidecar:8000"):
             mock_session = MagicMock()
-            with patch("pipeline.fetchers.url_enrich._get_session", return_value=mock_session):
+            with patch(
+                "pipeline.fetchers.url_enrich._get_session", return_value=mock_session
+            ):
                 mock_resp = MagicMock()
                 mock_resp.status_code = 502
                 mock_resp.json.return_value = {"error": "Failed to load page"}
@@ -647,7 +660,9 @@ class TestRenderViaSidecar:
         )
         with patch("pipeline.fetchers.url_enrich._SIDECAR_URL", "http://sidecar:8000"):
             mock_session = MagicMock()
-            with patch("pipeline.fetchers.url_enrich._get_session", return_value=mock_session):
+            with patch(
+                "pipeline.fetchers.url_enrich._get_session", return_value=mock_session
+            ):
                 mock_resp = MagicMock()
                 mock_resp.status_code = 200
                 mock_resp.json.return_value = {
@@ -666,7 +681,9 @@ class TestRenderViaSidecar:
         html = "<html><body>Just a page with no address</body></html>"
         with patch("pipeline.fetchers.url_enrich._SIDECAR_URL", "http://sidecar:8000"):
             mock_session = MagicMock()
-            with patch("pipeline.fetchers.url_enrich._get_session", return_value=mock_session):
+            with patch(
+                "pipeline.fetchers.url_enrich._get_session", return_value=mock_session
+            ):
                 mock_resp = MagicMock()
                 mock_resp.status_code = 200
                 mock_resp.json.return_value = {
@@ -706,7 +723,9 @@ class TestEnrichOneSidecar:
             raise requests.ConnectionError("timeout")
 
         mock_session = MagicMock()
-        with patch("pipeline.fetchers.url_enrich._get_session", return_value=mock_session):
+        with patch(
+            "pipeline.fetchers.url_enrich._get_session", return_value=mock_session
+        ):
             mock_session.get.side_effect = get_side_effect
             mock_session.post.return_value = mock_resp
             with patch(
@@ -745,12 +764,17 @@ class TestEnrichOneSidecar:
         event = _make_event(zip_code="", city="", county="")
         with patch("pipeline.fetchers.url_enrich._SIDECAR_URL", "http://sidecar:8000"):
             mock_session = MagicMock()
-            with patch("pipeline.fetchers.url_enrich._get_session", return_value=mock_session):
-                mock_session.get.side_effect = lambda *a, **kw: responses_lib.calls and MagicMock(
-                    status_code=200,
-                    text="<html><body>No address data in static HTML</body></html>",
-                    headers={"Content-Type": "text/html"},
-                    url=url,
+            with patch(
+                "pipeline.fetchers.url_enrich._get_session", return_value=mock_session
+            ):
+                mock_session.get.side_effect = lambda *a, **kw: (
+                    responses_lib.calls
+                    and MagicMock(
+                        status_code=200,
+                        text="<html><body>No address data in static HTML</body></html>",
+                        headers={"Content-Type": "text/html"},
+                        url=url,
+                    )
                 )
                 mock_session.post.return_value = mock_sidecar_resp
                 # Use enrich_from_urls but mock at SESSION level
