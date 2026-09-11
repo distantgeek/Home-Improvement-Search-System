@@ -75,7 +75,11 @@ def main() -> int:
     try:
         syncer = MeilisearchSync(meili_url, meili_master_key or "x")
         stats = syncer._client.index(INDEX_UID).get_stats()
-        meili_count = stats["numberOfDocuments"]
+        meili_count = getattr(stats, "number_of_documents", None)
+        if meili_count is None and isinstance(stats, dict):
+            meili_count = stats.get("numberOfDocuments")
+        if meili_count is None:
+            raise RuntimeError("Could not read document count from Meilisearch stats")
     except Exception as exc:
         logger.error("Cannot reach Meilisearch at %s: %s", meili_url, exc)
         return 2
