@@ -4,6 +4,7 @@ import pytest
 
 from pipeline.constants import STATE_ORDER
 from pipeline.models import EventItem
+from pipeline.normalize import is_non_target_state_event
 
 
 class TestUrlDedup:
@@ -99,3 +100,53 @@ class TestStateFilter:
         filtered = [e for e in events if e.state in STATE_ORDER]
         assert len(filtered) == 1
         assert filtered[0].name == "MD Event"
+
+
+class TestPostEnrichmentStateFilter:
+    """Test the post-enrichment re-check that drops events whose scraped
+    address data reveals a non-target state."""
+
+    def _post_enrich_filter(self, events: list[EventItem]) -> list[EventItem]:
+        return [
+            e
+            for e in events
+            if not is_non_target_state_event(e.name, e.addr_full, e.primary_url)
+        ]
+
+    def test_drops_event_with_out_of_state_address_revealed_by_enrichment(self):
+        # Query hint said KS; URL enrichment revealed the event is in Nebraska.
+        events = [
+            EventItem(
+                name="Chase County Fair",
+                state="KS",
+                addr_full="Chase County Fairgrounds, Imperial, NE 69033",
+                primary_url="https://example.com/fair",
+            )
+        ]
+        filtered = self._post_enrich_filter(events)
+        assert len(filtered) == 0
+
+    def test_keeps_target_state_event(self):
+        events = [
+            EventItem(
+                name="Frederick County Home Show",
+                state="MD",
+                addr_full="Frederick Fairgrounds, Frederick, MD 21701",
+                primary_url="https://example.com/home-show",
+            )
+        ]
+        filtered = self._post_enrich_filter(events)
+        assert len(filtered) == 1
+
+    def test_keeps_central_region_event(self):
+        # MO/IL/OH/KS are intentional target states (Central Region).
+        events = [
+            EventItem(
+                name="Kansas State Fair",
+                state="KS",
+                addr_full="Hutchinson, KS 67502",
+                primary_url="https://kansasstatefair.com",
+            )
+        ]
+        filtered = self._post_enrich_filter(events)
+        assert len(filtered) == 1

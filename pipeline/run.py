@@ -38,6 +38,7 @@ from .store import Store
 from .sync import MeilisearchSync
 from .constants import STATE_ORDER
 from .models import EventItem
+from .normalize import is_non_target_state_event
 
 logging.basicConfig(
     level=logging.INFO,
@@ -165,6 +166,23 @@ def run_pipeline(config: dict, ingest_path: str | None = None) -> None:
         event.fetched_at = fetched_at
         enricher.enrich(event)
 
+    # ── Post-enrichment non-target state re-check ─────────────────────────────
+    # URL enrichment can reveal address data (e.g. "Nebraska" in a KS-query
+    # result) that was not present in the original Serper payload. The fetch-time
+    # guard in normalize_event cannot see that data, so re-run it here.
+    pre_content = len(events)
+    events = [
+        e
+        for e in events
+        if not is_non_target_state_event(e.name, e.addr_full, e.primary_url)
+    ]
+    content_dropped = pre_content - len(events)
+    if content_dropped:
+        logger.info(
+            "Post-enrichment state filter: dropped %d events (out-of-region)",
+            content_dropped,
+        )
+
     pre_filter = len(events)
     events = [
         e for e in events if not e.start_date or e.start_date >= f"{year_prefix}-01-01"
@@ -281,13 +299,34 @@ def main() -> None:
         )
 
     def _job_missed_listener(event):
-        logger.warning("Scheduled pipeline run missed (misfire_grace_time exceeded)")
+        # APScheduler's default misfire_grace_time is 1 second — the scheduler
+        # thread frequently wakes up a few hundred ms late, which caused every
+        # weekly run to be silently skipped. We now set misfire_grace_time=3600
+        # so a late wake still executes; this listener remains as a tripwire
+        # for runs missed by more than the grace window.
+        logger.warning(
+            "Scheduled pipeline run missed by %s (misfire_grace_time exceeded) — "
+            "index may be stale",
+            getattr(event, "scheduled_run_time", "unknown"),
+        )
 
     scheduler = BlockingScheduler()
     scheduler.add_listener(_job_error_listener, EVENT_JOB_ERROR)
     scheduler.add_listener(_job_missed_listener, EVENT_JOB_MISSED)
     scheduler.add_job(
-        run_pipeline, trigger, args=[config, None], id="pipeline", max_instances=1
+        run_pipeline,
+        trigger,
+        args=[config, None],
+        id="pipeline",
+        max_instances=1,
+        # Default misfire_grace_time is 1s — the scheduler wakes up late and
+        # silently skips the run (observed: every weekly run missed by ~1s).
+        # A 1-hour grace window absorbs scheduler jitter while still surfacing
+        # genuinely missed runs via the EVENT_JOB_MISSED listener above.
+        misfire_grace_time=3600,
+        # If a run is missed and the next trigger arrives, coalesce so only one
+        # run executes instead of a backlog of queued runs.
+        coalesce=True,
     )
     logger.info("Scheduler started — cron: %s", config["schedule"])
 

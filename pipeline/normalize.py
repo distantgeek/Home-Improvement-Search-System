@@ -175,6 +175,26 @@ def _is_skip_domain(url: str) -> bool:
     return any(hostname == d or hostname.endswith("." + d) for d in _SKIP_DOMAINS)
 
 
+def is_non_target_state_event(name: str, addr_full: str, url: str) -> bool:
+    """Return True if the event's title, address, or URL mentions a non-target state.
+
+    Reusable guard — called at fetch time (normalize_event) and again after
+    URL enrichment, which can reveal address data (e.g. "Nebraska" in a KS-query
+    result) that was not present in the original Serper payload.
+    """
+    combined_lower = f"{name} {addr_full} {url}".lower()
+    for nt_name in _NON_TARGET_STATES:
+        if nt_name.lower() in combined_lower:
+            return True
+    # State abbreviations are uppercase in addresses (", NE") — search
+    # the original-case text, not the lowercased version.
+    combined_orig = f"{name} {addr_full} {url}"
+    for m in _ADDR_STATE_RE.finditer(combined_orig):
+        if m.group(1) not in _TARGET_ABBREVIATIONS:
+            return True
+    return False
+
+
 _RANGE_SPLIT_RE = re.compile(r"\s*[–\-]\s*")
 _YEAR_IN_RANGE_RE = re.compile(r"\b(20[2-9]\d)\b")
 _RANGE_END_RE = re.compile(r"[–\-]\s*(?:(\w+)\s+)?(\d+)(?:,\s*(\d{4}))?")
@@ -458,22 +478,9 @@ def normalize_event(
     # are actually in Nebraska, Iowa, etc. from entering the pipeline.
     # Applied to ALL source types — serper_events can also return out-of-state
     # results when a border city (e.g. Kansas City, MO) matches a KS query.
-    combined_lower = f"{name} {addr_full} {url}".lower()
-    rejected = False
-    for nt_name in _NON_TARGET_STATES:
-        if nt_name.lower() in combined_lower:
-            rejected = True
-            break
-    if not rejected:
-        # State abbreviations are uppercase in addresses (", NE") — search
-        # the original-case text, not the lowercased version.
-        combined_orig = f"{name} {addr_full} {url}"
-        for m in _ADDR_STATE_RE.finditer(combined_orig):
-            st = m.group(1)
-            if st not in _TARGET_ABBREVIATIONS:
-                rejected = True
-                break
-    if rejected:
+    # Note: this runs before URL enrichment; run_pipeline re-checks after
+    # enrichment because scraped address data can reveal a non-target state.
+    if is_non_target_state_event(name, addr_full, url):
         logger.debug(
             "Rejected non-target state event: %r (mentions out-of-state)",
             name[:60],

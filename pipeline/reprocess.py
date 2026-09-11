@@ -20,11 +20,9 @@ from .dedup import exact_dedup, fuzzy_merge_results
 from .enrich import Enricher
 from .models import EventItem
 from .normalize import (
-    _NON_TARGET_STATES,
-    _ADDR_STATE_RE,
-    _TARGET_ABBREVIATIONS,
     _NAME_DATE_RE,
     _YEAR_IN_RANGE_RE,
+    is_non_target_state_event,
     parse_dates,
 )
 import re
@@ -43,7 +41,9 @@ def _row_to_event(row: dict) -> EventItem:
     # addr_full is transient — never persisted. Reconstruct from stored fields
     # so that Tier 2/3 enrichment (county scan, city lookup) has address context.
     addr_full = ", ".join(
-        p for p in [row.get("venue", ""), row.get("city", ""), row.get("state", "")] if p
+        p
+        for p in [row.get("venue", ""), row.get("city", ""), row.get("state", "")]
+        if p
     )
     return EventItem(
         event_id=row["event_id"],
@@ -159,23 +159,11 @@ def main():
     # in Nebraska, Iowa, Colorado, etc. — the same check normalize_event now
     # does at fetch time, applied retroactively to existing data.
     pre_content = len(events)
-    filtered = []
-    for event in events:
-        combined_lower = f"{event.name} {event.addr_full} {event.primary_url}".lower()
-        rejected = False
-        for nt_name in _NON_TARGET_STATES:
-            if nt_name.lower() in combined_lower:
-                rejected = True
-                break
-        if not rejected:
-            combined_orig = f"{event.name} {event.addr_full} {event.primary_url}"
-            for m in _ADDR_STATE_RE.finditer(combined_orig):
-                if m.group(1) not in _TARGET_ABBREVIATIONS:
-                    rejected = True
-                    break
-        if not rejected:
-            filtered.append(event)
-    events = filtered
+    events = [
+        e
+        for e in events
+        if not is_non_target_state_event(e.name, e.addr_full, e.primary_url)
+    ]
     content_dropped = pre_content - len(events)
     if content_dropped:
         logger.info(

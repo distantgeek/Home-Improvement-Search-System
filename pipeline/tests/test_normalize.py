@@ -4,6 +4,7 @@ import pytest
 
 from pipeline.normalize import (
     infer_event_type,
+    is_non_target_state_event,
     normalize_event,
     organics_to_events,
     parse_dates,
@@ -390,6 +391,66 @@ class TestNormalizeEvent:
 
 class TestNonTargetStateGuard:
     """Test that events mentioning non-target states are rejected."""
+
+    def test_rejects_nebraska_in_title_direct(self):
+        assert is_non_target_state_event(
+            "Chase County Fair - Nebraska Association of Fair Managers",
+            "",
+            "https://nebraskafairs.org/fairs.php?fairid=14",
+        )
+
+    def test_rejects_nebraska_in_url(self):
+        assert is_non_target_state_event(
+            "Cheyenne County Fair",
+            "",
+            "https://extension.unl.edu/statewide/cheyenne/fair",
+        )
+
+    def test_rejects_colorado_in_title(self):
+        assert is_non_target_state_event(
+            "Kiowa County Fair Board - Colorado",
+            "",
+            "https://kiowacounty.colorado.gov/fair",
+        )
+
+    def test_rejects_iowa_in_url(self):
+        assert is_non_target_state_event(
+            "Clay County Fair 2026",
+            "",
+            "https://governor.iowa.gov/events/clay-county-fair",
+        )
+
+    def test_rejects_non_target_state_abbreviation_in_address(self):
+        assert is_non_target_state_event(
+            "County Fair", "Pawnee City, NE 68420", "https://example.com"
+        )
+
+    def test_allows_kansas_in_title(self):
+        """Kansas is a target state — events mentioning it should NOT be rejected."""
+        assert not is_non_target_state_event(
+            "Kansas State Fair 2026", "Hutchinson, KS", "https://kansasstatefair.com"
+        )
+
+    def test_allows_missouri_in_address(self):
+        """Missouri is a target state — events in MO should NOT be rejected."""
+        assert not is_non_target_state_event(
+            "Home Show", "St. Louis, MO 63101", "https://example.com"
+        )
+
+    def test_allows_clean_target_state_event(self):
+        assert not is_non_target_state_event(
+            "Frederick County Home Show 2026",
+            "Frederick Fairgrounds, Frederick, MD 21701",
+            "https://example.com",
+        )
+
+    def test_catches_state_revealed_by_enrichment(self):
+        """The post-enrichment re-check catches states only visible in scraped data."""
+        assert is_non_target_state_event(
+            "Chase County Fair",
+            "Chase County Fairgrounds, Imperial, NE 69033",
+            "https://example.com",
+        )
 
     def test_rejects_nebraska_in_title(self):
         evt = {
